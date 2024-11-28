@@ -1,176 +1,196 @@
-// MainApplication.java
 package org.example.gbhujanfx1;
 
-import java.net.URI;
 
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-
-/*
-Final:
-
-mvn clean compile package javafx:jlink jpackage:jpackage
-
-Will Generate >>
-
-target/dist/MyApp-1.0.0.pkg
-
-Log >>
-
-[INFO] Using: /Users/giri/Library/Java/JavaVirtualMachines/openjdk-23.0.1/Contents/Home/bin/jpackage, major version: 23
-[INFO] jpackage options:
-[INFO]   --name MyApp
-[INFO]   --dest /Users/giri/git/java/javafx/target/dist
-[INFO]   --type pkg
-[INFO]   --app-version 1.0.0
-[INFO]   --runtime-image /Users/giri/git/java/javafx/target/gbhujanfx1
-[INFO]   --input /Users/giri/git/java/javafx/target
-[INFO]   --main-class org.example.gbhujanfx1.Application
-[INFO]   --main-jar gbhujanfx1-1.0-SNAPSHOT.jar
-*/
-
-/*
-mvn clean install
-
-mvn clean package
-*/
-
-/*
-Run > Edit Configurations > Template = "Application"
-
-Run > Edit Configurations > VM Options >
-
---module-path /Users/giri/javafx/javafx-sdk-23.0.1/lib --add-modules javafx.controls,javafx.fxml,javafx.graphics -jar target/gbhujanFX1-1.0-SNAPSHOT.jar --add-exports javafx.graphics/com.sun.javafx.sg.prism=ALL-UNNAMED --add-exports javafx.graphics/com.sun.javafx.scene=ALL-UNNAMED --add-exports javafx.graphics/com.sun.javafx.util=ALL-UNNAMED --add-exports javafx.base/com.sun.javafx.reflect=ALL-UNNAMED --add-exports javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --add-exports javafx.graphics/com.sun.glass.ui=ALL-UNNAMED
-
-Main Class:
-
-org.example.gbhujanfx1.Application
-
-Working Directory >
-
-$PROJECT_DIR$
-*/
-
-/*
-
-.gitignore  # Include IDE files, build artifacts
-
-pom.xml
-src/
-└── main/
-    ├── java/
-    │   └── org/example/gbhujanfx1/
-    │       ├── HelloApplication.java
-    │       └── module-info.java
-    └── resources/  # If you add resources later
-README.md  # Add installation/running instructions
-
-Query JavaFX Packages >>
-
-jar tf /Users/giri/.m2/repository/org/example/gbhujanfx1/1.0-SNAPSHOT/gbhujanfx1-1.0-SNAPSHOT.jar|grep javafx
-*/
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 public class Application extends javafx.application.Application {
-    private TextArea responseArea;
+   private TextArea responseArea;
 
-    @Override
-    public void init() throws Exception {
-        // Initialize any background tasks here
-        super.init();
-    }
+   @Override
+   public void init() throws Exception {
+       super.init();
+   }
 
-    @Override
-    public void stop() throws Exception {
-        // Cleanup when app closes
-        super.stop();
-    }
+   @Override
+   public void stop() throws Exception {
+       super.stop();
+   }
+
+   @Override
+   public void start(Stage stage) {
+       VBox root = new VBox(10);
+       root.setPadding(new Insets(10));
+
+       // Personal Info Section
+       Label personalInfoLabel = new Label("Personal Information");
+       personalInfoLabel.setStyle("-fx-font-weight: bold");
+
+       TextField nameField = new TextField();
+       nameField.setPromptText("Full Name");
+
+       TextField emailField = new TextField();
+       emailField.setPromptText("Email");
+
+       // Address Section
+       Label addressLabel = new Label("Address");
+       addressLabel.setStyle("-fx-font-weight: bold");
+
+       TextField streetField = new TextField();
+       streetField.setPromptText("Street Address");
+
+       HBox cityStateBox = new HBox(10);
+       TextField cityField = new TextField();
+       cityField.setPromptText("City");
+       ComboBox<String> stateComboBox = new ComboBox<>();
+       stateComboBox.getItems().addAll("CA", "NY", "TX", "FL", "WA", "OR", "NV", "AZ");
+       stateComboBox.setPromptText("State");
+       cityStateBox.getChildren().addAll(cityField, stateComboBox);
+
+       // Message Section
+       Label messageLabel = new Label("Message");
+       messageLabel.setStyle("-fx-font-weight: bold");
+
+       TextArea messageField = new TextArea();
+       messageField.setPromptText("Your message here");
+       messageField.setPrefRowCount(3);
+
+       // Priority Selection
+       Label priorityLabel = new Label("Priority");
+       priorityLabel.setStyle("-fx-font-weight: bold");
+
+       ToggleGroup priorityGroup = new ToggleGroup();
+       RadioButton lowPriority = new RadioButton("Low");
+       RadioButton mediumPriority = new RadioButton("Medium");
+       RadioButton highPriority = new RadioButton("High");
+       lowPriority.setToggleGroup(priorityGroup);
+       mediumPriority.setToggleGroup(priorityGroup);
+       highPriority.setToggleGroup(priorityGroup);
+       mediumPriority.setSelected(true);
+       HBox priorityBox = new HBox(10);
+       priorityBox.getChildren().addAll(lowPriority, mediumPriority, highPriority);
+
+       // Categories
+       Label categoriesLabel = new Label("Categories");
+       categoriesLabel.setStyle("-fx-font-weight: bold");
+
+       CheckBox generalCheckBox = new CheckBox("General");
+       CheckBox technicalCheckBox = new CheckBox("Technical");
+       CheckBox billingCheckBox = new CheckBox("Billing");
+       HBox categoriesBox = new HBox(10);
+       categoriesBox.getChildren().addAll(generalCheckBox, technicalCheckBox, billingCheckBox);
+
+       // Response Area
+       responseArea = new TextArea();
+       responseArea.setEditable(false);
+       responseArea.setPrefRowCount(5);
+
+       // Submit Button
+       Button submitButton = new Button("Submit Request");
+       submitButton.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
+
+       root.getChildren().addAll(
+           personalInfoLabel,
+           new Label("Name:"), nameField,
+           new Label("Email:"), emailField,
+           addressLabel,
+           new Label("Street:"), streetField,
+           new Label("City/State:"), cityStateBox,
+           messageLabel,
+           messageField,
+           priorityLabel,
+           priorityBox,
+           categoriesLabel,
+           categoriesBox,
+           submitButton,
+           new Label("Response:"),
+           responseArea
+       );
 
 
-    @Override
-    public void start(Stage stage) {
-        VBox root = new VBox(10);
-        root.setPadding(new Insets(10));
+       Scene scene = new Scene(root, 500, 700);
+       stage.setTitle("Support Request Form");
+       stage.setResizable(false);
+       stage.setWidth(500);
+       stage.setHeight(700);
+       stage.setScene(scene);
+       stage.show();
 
-        // Form fields
-        TextField nameField = new TextField();
-        nameField.setPromptText("Name");
+       submitButton.setOnAction(e -> handleSubmit(
+           nameField.getText(),
+           emailField.getText(),
+           streetField.getText(),
+           cityField.getText(),
+           stateComboBox.getValue(),
+           messageField.getText(),
+           ((RadioButton)priorityGroup.getSelectedToggle()).getText(),
+           getSelectedCategories(generalCheckBox, technicalCheckBox, billingCheckBox)
+       ));
 
-        TextArea messageField = new TextArea();
-        messageField.setPromptText("Message");
-        messageField.setPrefRowCount(3);
+   }
 
-        responseArea = new TextArea();
-        responseArea.setEditable(false);
-        responseArea.setPrefRowCount(10);
+   private String getSelectedCategories(CheckBox... boxes) {
+       return Arrays.stream(boxes)
+           .filter(CheckBox::isSelected)
+           .map(CheckBox::getText)
+           .collect(Collectors.joining(", "));
+   }
 
-        Button submitButton = new Button("Submit");
-        submitButton.setOnAction(e -> handleSubmit(nameField.getText(), messageField.getText()));
+   private void handleSubmit(String name, String email, String street,
+                           String city, String state, String message,
+                           String priority, String categories) {
+       try {
+           String jsonPayload = String.format("""
+               {
+                   "name": "%s",
+                   "email": "%s", 
+                   "street": "%s",
+                   "city": "%s",
+                   "state": "%s",
+                   "message": "%s",
+                   "priority": "%s",
+                   "categories": "%s"
+               }""", name, email, street, city, state, message, priority, categories);
 
-        root.getChildren().addAll(
-            new Label("Name:"), nameField,
-            new Label("Message:"), messageField,
-            submitButton,
-            new Label("Response:"), responseArea
-        );
+           HttpRequest request = HttpRequest.newBuilder()
+               .uri(new URI("http://your-api-endpoint.com/post"))
+               .header("Content-Type", "application/json")
+               .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+               .build();
 
-        Scene scene = new Scene(root, 400, 500);
-        stage.setTitle("API Form Demo");
-        stage.setScene(scene);
-        stage.show();
-    }
+           HttpClient.newHttpClient()
+               .sendAsync(request, HttpResponse.BodyHandlers.ofString())
+               .thenAccept(response -> {
+                   javafx.application.Platform.runLater(() ->
+                       responseArea.setText(response.body())
+                   );
+               })
+               .exceptionally(error -> {
+                   javafx.application.Platform.runLater(() ->
+                       responseArea.setText("Error: " + error.getMessage())
+                   );
+                   return null;
+               });
 
-    private void handleSubmit(String name, String message) {
-        try {
-            // Create JSON payload
-            String jsonPayload = String.format("""
-                {
-                    "name": "%s",
-                    "message": "%s"
-                }""", name, message);
-
-            // Create HTTP request
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(new URI("http://your-api-endpoint.com/post"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                .build();
-
-            // Send request asynchronously
-            HttpClient.newHttpClient()
-                .sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenAccept(response -> {
-                    // Update UI on JavaFX thread
-                    javafx.application.Platform.runLater(() ->
-                        responseArea.setText(response.body())
-                    );
-                })
-                .exceptionally(error -> {
-                    javafx.application.Platform.runLater(() ->
-                        responseArea.setText("Error: " + error.getMessage())
-                    );
-                    return null;
-                });
-
-        } catch (Exception e) {
-            responseArea.setText("Error: " + e.getMessage());
-        }
-    }
-
-    public static void main(String[] args) {
-
-        // Safe startup for macOS
-//        Platform.startup(() -> {});
-        launch(args);
-
-    }
+       } catch (Exception e) {
+           responseArea.setText("Error: " + e.getMessage());
+       }
+   }
 
 
+
+   public static void main(String[] args) {
+       launch(args);
+   }
 }
-
