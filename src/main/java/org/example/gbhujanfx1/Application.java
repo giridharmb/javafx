@@ -28,6 +28,12 @@ mvn javafx:jlink
 
 /*
 
+--module-path /Users/gbhujan/javafxsdk/javafx-sdk-23.0.1/lib --add-modules javafx.controls,javafx.fxml -jar target/gbhujanFX1-1.0-SNAPSHOT.jar
+
+*/
+
+/*
+
 .gitignore  # Include IDE files, build artifacts
 
 pom.xml
