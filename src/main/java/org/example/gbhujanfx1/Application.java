@@ -1,196 +1,203 @@
 package org.example.gbhujanfx1;
 
-
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.Arrays;
-import java.util.stream.Collectors;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Application extends javafx.application.Application {
-   private TextArea responseArea;
+    private TextField searchField;
+    private Pagination pagination;
+    private final int ROWS_PER_PAGE = 20;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(1);
 
-   @Override
-   public void init() throws Exception {
-       super.init();
-   }
+    @Override
+    public void start(Stage stage) {
+        VBox root = new VBox(10);
+        root.setPadding(new Insets(10));
 
-   @Override
-   public void stop() throws Exception {
-       super.stop();
-   }
+        // Search Box
+        searchField = new TextField();
+        searchField.setPromptText("Search across all columns...");
+        searchField.setPrefWidth(300);
 
-   @Override
-   public void start(Stage stage) {
-       VBox root = new VBox(10);
-       root.setPadding(new Insets(10));
+        Button searchButton = new Button("Search");
+        searchButton.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
 
-       // Personal Info Section
-       Label personalInfoLabel = new Label("Personal Information");
-       personalInfoLabel.setStyle("-fx-font-weight: bold");
+        HBox searchBox = new HBox(10);
+        searchBox.getChildren().addAll(new Label("Search:"), searchField, searchButton);
+        searchBox.setPadding(new Insets(0, 0, 10, 0));
 
-       TextField nameField = new TextField();
-       nameField.setPromptText("Full Name");
+        // Pagination
+        pagination = new Pagination();
+        pagination.setPageFactory(this::createPage);
+        pagination.setMaxPageIndicatorCount(5);
 
-       TextField emailField = new TextField();
-       emailField.setPromptText("Email");
+        root.getChildren().addAll(searchBox, pagination);
 
-       // Address Section
-       Label addressLabel = new Label("Address");
-       addressLabel.setStyle("-fx-font-weight: bold");
+        // Search Button Action
+        searchButton.setOnAction(e -> refreshTable(searchField.getText()));
+        refreshTable(""); // Initial Load
 
-       TextField streetField = new TextField();
-       streetField.setPromptText("Street Address");
+        // Scene Setup
+        Scene scene = new Scene(root, 800, 600);
+        stage.setTitle("Random Data Viewer");
+        stage.setResizable(false);
+        stage.setScene(scene);
+        stage.show();
+    }
 
-       HBox cityStateBox = new HBox(10);
-       TextField cityField = new TextField();
-       cityField.setPromptText("City");
-       ComboBox<String> stateComboBox = new ComboBox<>();
-       stateComboBox.getItems().addAll("CA", "NY", "TX", "FL", "WA", "OR", "NV", "AZ");
-       stateComboBox.setPromptText("State");
-       cityStateBox.getChildren().addAll(cityField, stateComboBox);
+    @Override
+    public void stop() {
+        executorService.shutdown();
+    }
 
-       // Message Section
-       Label messageLabel = new Label("Message");
-       messageLabel.setStyle("-fx-font-weight: bold");
+    private void refreshTable(String searchTerm) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Fetch row count for pagination
+                long count = DbConnection.executeCountSync(
+                        "SELECT COUNT(*) FROM t_random " +
+                                "WHERE (CAST(random_num AS TEXT) ILIKE ? OR CAST(random_float AS TEXT) ILIKE ? OR md5 ILIKE ?)",
+                        searchTerm
+                );
+                int pageCount = (int) Math.ceil(count / (double) ROWS_PER_PAGE);
 
-       TextArea messageField = new TextArea();
-       messageField.setPromptText("Your message here");
-       messageField.setPrefRowCount(3);
+                // Update pagination and reset to the first page
+                Platform.runLater(() -> {
+                    pagination.setPageCount(pageCount);
+                    pagination.setCurrentPageIndex(0);
+                });
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }, executorService);
+    }
 
-       // Priority Selection
-       Label priorityLabel = new Label("Priority");
-       priorityLabel.setStyle("-fx-font-weight: bold");
+    private Node createPage(int pageIndex) {
+        TableView<RandomData> pageTableView = new TableView<>();
+        setupTableColumns(pageTableView);
 
-       ToggleGroup priorityGroup = new ToggleGroup();
-       RadioButton lowPriority = new RadioButton("Low");
-       RadioButton mediumPriority = new RadioButton("Medium");
-       RadioButton highPriority = new RadioButton("High");
-       lowPriority.setToggleGroup(priorityGroup);
-       mediumPriority.setToggleGroup(priorityGroup);
-       highPriority.setToggleGroup(priorityGroup);
-       mediumPriority.setSelected(true);
-       HBox priorityBox = new HBox(10);
-       priorityBox.getChildren().addAll(lowPriority, mediumPriority, highPriority);
+        // Fetch data asynchronously
+        CompletableFuture.runAsync(() -> {
+            try {
+                List<RandomData> results = DbConnection.executeQuerySync(
+                        "SELECT * FROM t_random " +
+                                "WHERE (CAST(random_num AS TEXT) ILIKE ? OR CAST(random_float AS TEXT) ILIKE ? OR md5 ILIKE ?) " +
+                                "ORDER BY random_num LIMIT ? OFFSET ?",
+                        searchField.getText(),
+                        ROWS_PER_PAGE,
+                        pageIndex * ROWS_PER_PAGE
+                );
 
-       // Categories
-       Label categoriesLabel = new Label("Categories");
-       categoriesLabel.setStyle("-fx-font-weight: bold");
+                // Update the TableView on the JavaFX thread
+                Platform.runLater(() -> pageTableView.getItems().addAll(results));
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        }, executorService);
 
-       CheckBox generalCheckBox = new CheckBox("General");
-       CheckBox technicalCheckBox = new CheckBox("Technical");
-       CheckBox billingCheckBox = new CheckBox("Billing");
-       HBox categoriesBox = new HBox(10);
-       categoriesBox.getChildren().addAll(generalCheckBox, technicalCheckBox, billingCheckBox);
+        return pageTableView;
+    }
 
-       // Response Area
-       responseArea = new TextArea();
-       responseArea.setEditable(false);
-       responseArea.setPrefRowCount(5);
+    private void setupTableColumns(TableView<RandomData> table) {
+        TableColumn<RandomData, Integer> numCol = new TableColumn<>("Random Number");
+        numCol.setCellValueFactory(cellData -> cellData.getValue().randomNumProperty().asObject());
+        numCol.setPrefWidth(200);
+        numCol.setStyle("-fx-alignment: CENTER;");
 
-       // Submit Button
-       Button submitButton = new Button("Submit Request");
-       submitButton.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
+        TableColumn<RandomData, Double> floatCol = new TableColumn<>("Random Float");
+        floatCol.setCellValueFactory(cellData -> cellData.getValue().randomFloatProperty().asObject());
+        floatCol.setPrefWidth(200);
+        floatCol.setStyle("-fx-alignment: CENTER;");
 
-       root.getChildren().addAll(
-           personalInfoLabel,
-           new Label("Name:"), nameField,
-           new Label("Email:"), emailField,
-           addressLabel,
-           new Label("Street:"), streetField,
-           new Label("City/State:"), cityStateBox,
-           messageLabel,
-           messageField,
-           priorityLabel,
-           priorityBox,
-           categoriesLabel,
-           categoriesBox,
-           submitButton,
-           new Label("Response:"),
-           responseArea
-       );
+        TableColumn<RandomData, String> md5Col = new TableColumn<>("MD5");
+        md5Col.setCellValueFactory(cellData -> cellData.getValue().md5Property());
+        md5Col.setPrefWidth(380);
+        md5Col.setStyle("-fx-alignment: CENTER-LEFT;");
 
+        table.getColumns().addAll(numCol, floatCol, md5Col);
+    }
 
-       Scene scene = new Scene(root, 500, 700);
-       stage.setTitle("Support Request Form");
-       stage.setResizable(false);
-       stage.setWidth(500);
-       stage.setHeight(700);
-       stage.setScene(scene);
-       stage.show();
+    public static void main(String[] args) {
+        launch(args);
+    }
+}
 
-       submitButton.setOnAction(e -> handleSubmit(
-           nameField.getText(),
-           emailField.getText(),
-           streetField.getText(),
-           cityField.getText(),
-           stateComboBox.getValue(),
-           messageField.getText(),
-           ((RadioButton)priorityGroup.getSelectedToggle()).getText(),
-           getSelectedCategories(generalCheckBox, technicalCheckBox, billingCheckBox)
-       ));
+// RandomData class
+class RandomData {
+    private final javafx.beans.property.IntegerProperty randomNum;
+    private final javafx.beans.property.DoubleProperty randomFloat;
+    private final javafx.beans.property.StringProperty md5;
 
-   }
+    public RandomData(int randomNum, double randomFloat, String md5) {
+        this.randomNum = new javafx.beans.property.SimpleIntegerProperty(randomNum);
+        this.randomFloat = new javafx.beans.property.SimpleDoubleProperty(randomFloat);
+        this.md5 = new javafx.beans.property.SimpleStringProperty(md5);
+    }
 
-   private String getSelectedCategories(CheckBox... boxes) {
-       return Arrays.stream(boxes)
-           .filter(CheckBox::isSelected)
-           .map(CheckBox::getText)
-           .collect(Collectors.joining(", "));
-   }
+    public javafx.beans.property.IntegerProperty randomNumProperty() {
+        return randomNum;
+    }
 
-   private void handleSubmit(String name, String email, String street,
-                           String city, String state, String message,
-                           String priority, String categories) {
-       try {
-           String jsonPayload = String.format("""
-               {
-                   "name": "%s",
-                   "email": "%s", 
-                   "street": "%s",
-                   "city": "%s",
-                   "state": "%s",
-                   "message": "%s",
-                   "priority": "%s",
-                   "categories": "%s"
-               }""", name, email, street, city, state, message, priority, categories);
+    public javafx.beans.property.DoubleProperty randomFloatProperty() {
+        return randomFloat;
+    }
 
-           HttpRequest request = HttpRequest.newBuilder()
-               .uri(new URI("http://your-api-endpoint.com/post"))
-               .header("Content-Type", "application/json")
-               .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-               .build();
+    public javafx.beans.property.StringProperty md5Property() {
+        return md5;
+    }
+}
 
-           HttpClient.newHttpClient()
-               .sendAsync(request, HttpResponse.BodyHandlers.ofString())
-               .thenAccept(response -> {
-                   javafx.application.Platform.runLater(() ->
-                       responseArea.setText(response.body())
-                   );
-               })
-               .exceptionally(error -> {
-                   javafx.application.Platform.runLater(() ->
-                       responseArea.setText("Error: " + error.getMessage())
-                   );
-                   return null;
-               });
+// DbConnection class
+class DbConnection {
+    private static Connection getConnection() throws SQLException {
+        return DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "please_ignore_this");
+    }
 
-       } catch (Exception e) {
-           responseArea.setText("Error: " + e.getMessage());
-       }
-   }
+    public static List<RandomData> executeQuerySync(String sql, String searchTerm, int limit, int offset) throws SQLException {
+        try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
+            String likeTerm = "%" + searchTerm + "%";
+            stmt.setString(1, likeTerm);
+            stmt.setString(2, likeTerm);
+            stmt.setString(3, likeTerm);
+            stmt.setInt(4, limit);
+            stmt.setInt(5, offset);
+            ResultSet rs = stmt.executeQuery();
+            return resultSetToList(rs);
+        }
+    }
 
+    public static long executeCountSync(String sql, String searchTerm) throws SQLException {
+        try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
+            String likeTerm = "%" + searchTerm + "%";
+            stmt.setString(1, likeTerm);
+            stmt.setString(2, likeTerm);
+            stmt.setString(3, likeTerm);
+            ResultSet rs = stmt.executeQuery();
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
 
-
-   public static void main(String[] args) {
-       launch(args);
-   }
+    private static List<RandomData> resultSetToList(ResultSet rs) throws SQLException {
+        List<RandomData> results = new ArrayList<>();
+        while (rs.next()) {
+            results.add(new RandomData(rs.getInt("random_num"), rs.getDouble("random_float"), rs.getString("md5")));
+        }
+        return results;
+    }
 }
