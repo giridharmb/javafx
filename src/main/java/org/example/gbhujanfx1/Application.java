@@ -1,8 +1,6 @@
 package org.example.gbhujanfx1;
 
 import javafx.application.Platform;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.Scene;
@@ -24,15 +22,16 @@ public class Application extends javafx.application.Application {
     private final int ROWS_PER_PAGE = 20;
     private final ExecutorService executorService = Executors.newFixedThreadPool(1);
 
+    private static final String ALLOWED_CHARACTERS_REGEX = "^[a-zA-Z0-9\\-_.,=@#$&:;/()]+$";
+
     @Override
     public void start(Stage stage) {
         VBox root = new VBox(10);
         root.setPadding(new Insets(10));
 
-        // Search Box
         searchField = new TextField();
-        searchField.setPromptText("Search across all columns...");
-        searchField.setPrefWidth(300);
+        searchField.setPromptText("Search across all columns using '+' for AND, '|' for OR...");
+        searchField.setPrefWidth(500);
 
         Button searchButton = new Button("Search");
         searchButton.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
@@ -41,20 +40,17 @@ public class Application extends javafx.application.Application {
         searchBox.getChildren().addAll(new Label("Search:"), searchField, searchButton);
         searchBox.setPadding(new Insets(0, 0, 10, 0));
 
-        // Pagination
         pagination = new Pagination();
         pagination.setPageFactory(this::createPage);
         pagination.setMaxPageIndicatorCount(5);
 
         root.getChildren().addAll(searchBox, pagination);
 
-        // Search Button Action
-        searchButton.setOnAction(e -> refreshTable(searchField.getText()));
+        searchButton.setOnAction(e -> refreshTable(searchField.getText().trim()));
         refreshTable(""); // Initial Load
 
-        // Scene Setup
         Scene scene = new Scene(root, 800, 600);
-        stage.setTitle("Random Data Viewer");
+        stage.setTitle("Advanced Search Viewer");
         stage.setResizable(false);
         stage.setScene(scene);
         stage.show();
@@ -65,47 +61,80 @@ public class Application extends javafx.application.Application {
         executorService.shutdown();
     }
 
+    private String preprocessSearchTerm(String searchTerm) {
+        if (searchTerm == null || searchTerm.isEmpty()) {
+            return ""; // Allow empty search for fetching all rows
+        }
+
+        // Trim and remove extra spaces
+        searchTerm = searchTerm.trim().replaceAll("\\s+", ""); // Remove all spaces
+
+        // Validate each keyword
+        String[] keywords = searchTerm.split("\\+|\\|");
+        for (String keyword : keywords) {
+            // Ensure keywords match allowed characters, including `_` and `%`
+            if (!keyword.matches(ALLOWED_CHARACTERS_REGEX)) {
+                return null; // Return null if any keyword is invalid
+            }
+        }
+
+        return searchTerm; // Return processed search term
+    }
+
+
     private void refreshTable(String searchTerm) {
+        searchTerm = preprocessSearchTerm(searchTerm); // Preprocess the term
+        if (searchTerm == null) {
+            showAlert("Invalid Input", "The search term contains invalid characters.");
+            return;
+        }
+
+        String finalSearchTerm = searchTerm;
         CompletableFuture.runAsync(() -> {
             try {
-                // Fetch row count for pagination
+                String sqlCondition = DbConnection.buildSqlCondition(finalSearchTerm);
+
                 long count = DbConnection.executeCountSync(
-                        "SELECT COUNT(*) FROM t_random " +
-                                "WHERE (CAST(random_num AS TEXT) ILIKE ? OR CAST(random_float AS TEXT) ILIKE ? OR md5 ILIKE ?)",
-                        searchTerm
+                        "SELECT COUNT(*) FROM t_random WHERE " + sqlCondition,
+                        finalSearchTerm
                 );
+
                 int pageCount = (int) Math.ceil(count / (double) ROWS_PER_PAGE);
 
-                // Update pagination and reset to the first page
                 Platform.runLater(() -> {
                     pagination.setPageCount(pageCount);
-                    pagination.setCurrentPageIndex(0);
+                    pagination.setCurrentPageIndex(0); // Reset to the first page
+                    pagination.setPageFactory(this::createPage); // Recreate the pages
                 });
             } catch (SQLException e) {
+                Platform.runLater(() -> showAlert("Database Error", "Failed to load data: " + e.getMessage()));
                 e.printStackTrace();
             }
         }, executorService);
     }
 
+
     private Node createPage(int pageIndex) {
         TableView<RandomData> pageTableView = new TableView<>();
         setupTableColumns(pageTableView);
 
-        // Fetch data asynchronously
         CompletableFuture.runAsync(() -> {
             try {
-                List<RandomData> results = DbConnection.executeQuerySync(
-                        "SELECT * FROM t_random " +
-                                "WHERE (CAST(random_num AS TEXT) ILIKE ? OR CAST(random_float AS TEXT) ILIKE ? OR md5 ILIKE ?) " +
-                                "ORDER BY random_num LIMIT ? OFFSET ?",
-                        searchField.getText(),
+                String sqlCondition = DbConnection.buildSqlCondition(searchField.getText().trim());
+
+                var results = DbConnection.executeQuerySync(
+                        "SELECT * FROM t_random WHERE " + sqlCondition + " ORDER BY random_num LIMIT ? OFFSET ?",
+                        searchField.getText().trim(),
                         ROWS_PER_PAGE,
                         pageIndex * ROWS_PER_PAGE
                 );
 
-                // Update the TableView on the JavaFX thread
-                Platform.runLater(() -> pageTableView.getItems().addAll(results));
+                Platform.runLater(() -> {
+                    pageTableView.getItems().clear(); // Clear previous results
+                    pageTableView.getItems().addAll(results); // Add new results
+                });
             } catch (SQLException e) {
+                Platform.runLater(() -> showAlert("Database Error", "Failed to load page: " + e.getMessage()));
                 e.printStackTrace();
             }
         }, executorService);
@@ -113,29 +142,53 @@ public class Application extends javafx.application.Application {
         return pageTableView;
     }
 
+
     private void setupTableColumns(TableView<RandomData> table) {
         TableColumn<RandomData, Integer> numCol = new TableColumn<>("Random Number");
         numCol.setCellValueFactory(cellData -> cellData.getValue().randomNumProperty().asObject());
         numCol.setPrefWidth(200);
-        numCol.setStyle("-fx-alignment: CENTER;");
 
         TableColumn<RandomData, Double> floatCol = new TableColumn<>("Random Float");
         floatCol.setCellValueFactory(cellData -> cellData.getValue().randomFloatProperty().asObject());
         floatCol.setPrefWidth(200);
-        floatCol.setStyle("-fx-alignment: CENTER;");
 
         TableColumn<RandomData, String> md5Col = new TableColumn<>("MD5");
         md5Col.setCellValueFactory(cellData -> cellData.getValue().md5Property());
         md5Col.setPrefWidth(380);
-        md5Col.setStyle("-fx-alignment: CENTER-LEFT;");
 
         table.getColumns().addAll(numCol, floatCol, md5Col);
+    }
+
+    private boolean isValidSearchInput(String input) {
+        if (input.isEmpty()) {
+            return true; // Allow empty search term
+        }
+
+        // Split the input into keywords based on `+` or `|`
+        String[] keywords = input.split("\\+|\\|");
+        for (String keyword : keywords) {
+            if (!keyword.matches(ALLOWED_CHARACTERS_REGEX)) {
+                return false; // If any keyword is invalid, return false
+            }
+        }
+
+        return true; // All keywords are valid
+    }
+
+
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle(title);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 
     public static void main(String[] args) {
         launch(args);
     }
 }
+// RandomData and DbConnection classes remain unchanged.
+
 
 // RandomData class
 class RandomData {
@@ -168,29 +221,79 @@ class DbConnection {
         return DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "please_ignore_this");
     }
 
+
     public static List<RandomData> executeQuerySync(String sql, String searchTerm, int limit, int offset) throws SQLException {
         try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
-            String likeTerm = "%" + searchTerm + "%";
-            stmt.setString(1, likeTerm);
-            stmt.setString(2, likeTerm);
-            stmt.setString(3, likeTerm);
-            stmt.setInt(4, limit);
-            stmt.setInt(5, offset);
+            setParameters(stmt, searchTerm, limit, offset);
             ResultSet rs = stmt.executeQuery();
             return resultSetToList(rs);
         }
     }
 
+
     public static long executeCountSync(String sql, String searchTerm) throws SQLException {
         try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
-            String likeTerm = "%" + searchTerm + "%";
-            stmt.setString(1, likeTerm);
-            stmt.setString(2, likeTerm);
-            stmt.setString(3, likeTerm);
+            setParameters(stmt, searchTerm, 0, 0); // No LIMIT or OFFSET for COUNT query
             ResultSet rs = stmt.executeQuery();
             rs.next();
             return rs.getLong(1);
         }
+    }
+
+
+    private static void setParameters(PreparedStatement stmt, String searchTerm, int limit, int offset) throws SQLException {
+        int index = 1;
+
+        if (!searchTerm.isEmpty()) {
+            String[] keywords = extractKeywords(searchTerm);
+            for (String keyword : keywords) {
+                // Escape SQL wildcard characters
+                String escapedKeyword = keyword.replace("_", "\\_").replace("%", "\\%");
+                String likeTerm = "%" + escapedKeyword.trim() + "%";
+
+                stmt.setString(index++, likeTerm); // For random_num
+                stmt.setString(index++, likeTerm); // For random_float
+                stmt.setString(index++, likeTerm); // For md5
+            }
+        }
+
+        // Set LIMIT and OFFSET parameters
+        if (limit > 0 && offset >= 0) {
+            stmt.setInt(index++, limit);
+            stmt.setInt(index, offset);
+        }
+
+        System.out.println("Prepared Statement Parameters Set: " + stmt);
+    }
+
+
+    public static String buildSqlCondition(String searchTerm) {
+        if (searchTerm.isEmpty()) {
+            return "1=1"; // Match all rows if no search term
+        }
+
+        // Determine operator based on the input
+        String operator = searchTerm.contains("+") ? "AND" : "OR";
+        String[] keywords = extractKeywords(searchTerm);
+
+        StringBuilder condition = new StringBuilder();
+        for (int i = 0; i < keywords.length; i++) {
+            condition.append("(")
+                    .append("CAST(random_num AS TEXT) ILIKE ? OR ")
+                    .append("CAST(random_float AS TEXT) ILIKE ? OR ")
+                    .append("md5 ILIKE ?")
+                    .append(")");
+            if (i < keywords.length - 1) {
+                condition.append(" ").append(operator).append(" ");
+            }
+        }
+
+        return condition.toString();
+    }
+
+
+    private static String[] extractKeywords(String searchTerm) {
+        return searchTerm.contains("+") ? searchTerm.split("\\+") : searchTerm.split("\\|");
     }
 
     private static List<RandomData> resultSetToList(ResultSet rs) throws SQLException {
