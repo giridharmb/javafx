@@ -31,3 +31,14 @@ INSERT INTO t_random (random_num, random_float, md5)
     md5(random()::text) 
  from generate_series(1,100);
 ```
+
+### PG Creds File
+
+File `~/config/db.conf`
+
+```ini
+db.host=127.0.0.1
+db.username=postgres
+db.password=please_ignore_this
+db.name=postgres
+```
