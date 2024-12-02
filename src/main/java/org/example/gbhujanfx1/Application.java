@@ -1,5 +1,13 @@
 package org.example.gbhujanfx1;
 
+import java.io.*;
+import java.util.Properties;
+
+import java.io.*;
+import java.sql.*;
+import java.util.*;
+import java.util.logging.*;
+
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
@@ -24,6 +32,8 @@ public class Application extends javafx.application.Application {
 
     private static final String ALLOWED_CHARACTERS_REGEX = "^[a-zA-Z0-9\\-_.,=@#$&:;/()]+$";
 
+
+
     @Override
     public void start(Stage stage) {
         VBox root = new VBox(10);
@@ -47,12 +57,20 @@ public class Application extends javafx.application.Application {
         root.getChildren().addAll(searchBox, pagination);
 
         searchButton.setOnAction(e -> refreshTable(searchField.getText().trim()));
-        refreshTable(""); // Initial Load
 
         Scene scene = new Scene(root, 800, 600);
         stage.setTitle("Advanced Search Viewer");
         stage.setResizable(false);
         stage.setScene(scene);
+
+        // Initialize DB connection
+        boolean success = DbConnection.initializeConnection();
+        if (!success) {
+            showAlert("Initialization Failed", "Failed to initialize database connection. Exiting application.");
+            Platform.exit();
+        }
+
+        refreshTable(""); // Initial Load
         stage.show();
     }
 
@@ -217,29 +235,109 @@ class RandomData {
 
 // DbConnection class
 class DbConnection {
-    private static Connection getConnection() throws SQLException {
-        return DriverManager.getConnection("jdbc:postgresql://localhost:5432/postgres", "postgres", "please_ignore_this");
+    private static final Logger LOGGER = Logger.getLogger(DbConnection.class.getName());
+    private static Connection connection;
+
+    public static boolean initializeConnection() {
+        try {
+            Properties config = loadConfig();
+
+            String host = config.getProperty("db.host");
+            String user = config.getProperty("db.username");
+            String password = config.getProperty("db.password");
+            String database = config.getProperty("db.name");
+
+            if (host == null || user == null || password == null || database == null) {
+                throw new IllegalArgumentException("Invalid configuration: Missing required database properties.");
+            }
+
+            connection = DriverManager.getConnection(
+                    "jdbc:postgresql://" + host + "/" + database,
+                    user,
+                    password
+            );
+
+            verifyRequiredColumns();
+
+            LOGGER.info("Database connection initialized successfully.");
+            return true;
+
+        } catch (FileNotFoundException e) {
+            showErrorDialog("Configuration Missing", "Configuration file not found: " + getConfigFilePath(), e);
+        } catch (SQLException e) {
+            showErrorDialog("Database Connection Error", "Failed to connect to the database: " + e.getMessage(), e);
+        } catch (IOException | IllegalArgumentException e) {
+            showErrorDialog("Configuration Error", e.getMessage(), e);
+        }
+        return false;
     }
 
+    private static Properties loadConfig() throws IOException {
+        File configFile = new File(getConfigFilePath());
+
+        if (!configFile.exists()) {
+            throw new FileNotFoundException("Configuration file not found: " + configFile.getAbsolutePath());
+        }
+
+        Properties properties = new Properties();
+        try (FileInputStream fis = new FileInputStream(configFile)) {
+            properties.load(fis);
+        }
+
+        return properties;
+    }
+
+    private static String getConfigFilePath() {
+        return System.getProperty("user.home") + "/config/db.conf";
+    }
+
+    private static void verifyRequiredColumns() throws SQLException {
+        String query = "SELECT random_num, random_float, md5 FROM t_random LIMIT 1";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.executeQuery();
+        } catch (SQLException e) {
+            throw new SQLException("Required columns are missing in the database.");
+        }
+    }
+
+    private static void showErrorDialog(String title, String message, Exception e) {
+        LOGGER.severe(message);
+        e.printStackTrace();
+
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle(title);
+            alert.setHeaderText(null);
+            alert.setContentText(message);
+            alert.showAndWait();
+        });
+
+        LOGGER.log(Level.SEVERE, message, e);
+    }
+
+    public static Connection getConnection() throws SQLException {
+        if (connection == null || connection.isClosed()) {
+            throw new SQLException("Database connection is not available.");
+        }
+        return connection;
+    }
 
     public static List<RandomData> executeQuerySync(String sql, String searchTerm, int limit, int offset) throws SQLException {
-        try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
             setParameters(stmt, searchTerm, limit, offset);
             ResultSet rs = stmt.executeQuery();
             return resultSetToList(rs);
         }
     }
 
-
     public static long executeCountSync(String sql, String searchTerm) throws SQLException {
-        try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
-            setParameters(stmt, searchTerm, 0, 0); // No LIMIT or OFFSET for COUNT query
+        try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+            setParameters(stmt, searchTerm, -1, -1); // No LIMIT or OFFSET for COUNT query
             ResultSet rs = stmt.executeQuery();
             rs.next();
             return rs.getLong(1);
         }
     }
-
 
     private static void setParameters(PreparedStatement stmt, String searchTerm, int limit, int offset) throws SQLException {
         int index = 1;
@@ -247,7 +345,6 @@ class DbConnection {
         if (!searchTerm.isEmpty()) {
             String[] keywords = extractKeywords(searchTerm);
             for (String keyword : keywords) {
-                // Escape SQL wildcard characters
                 String escapedKeyword = keyword.replace("_", "\\_").replace("%", "\\%");
                 String likeTerm = "%" + escapedKeyword.trim() + "%";
 
@@ -257,22 +354,22 @@ class DbConnection {
             }
         }
 
-        // Set LIMIT and OFFSET parameters
-        if (limit > 0 && offset >= 0) {
+        // Set LIMIT and OFFSET only if specified
+        if (limit > 0) {
             stmt.setInt(index++, limit);
+        }
+        if (offset >= 0) {
             stmt.setInt(index, offset);
         }
 
         System.out.println("Prepared Statement Parameters Set: " + stmt);
     }
 
-
     public static String buildSqlCondition(String searchTerm) {
         if (searchTerm.isEmpty()) {
             return "1=1"; // Match all rows if no search term
         }
 
-        // Determine operator based on the input
         String operator = searchTerm.contains("+") ? "AND" : "OR";
         String[] keywords = extractKeywords(searchTerm);
 
@@ -290,7 +387,6 @@ class DbConnection {
 
         return condition.toString();
     }
-
 
     private static String[] extractKeywords(String searchTerm) {
         return searchTerm.contains("+") ? searchTerm.split("\\+") : searchTerm.split("\\|");
