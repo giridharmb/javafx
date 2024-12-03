@@ -1,0 +1,50 @@
+/* Center-align text in the search box */
+.search-box {
+    -fx-alignment: center;
+    -fx-padding: 10;
+    -fx-font-size: 14px;
+}
+
+/* Style the search button */
+.search-button {
+    -fx-font-size: 14px;
+    -fx-padding: 8 12;
+    -fx-background-color: #2a9df4;
+    -fx-text-fill: white;
+    -fx-border-radius: 5;
+    -fx-background-radius: 5;
+}
+
+.search-button:hover {
+    -fx-background-color: #2383c8;
+}
+
+.search-button:disabled {
+    -fx-background-color: #c0c0c0;
+    -fx-text-fill: #6f6f6f;
+}
+
+/* Center-align pagination buttons */
+.pagination {
+    -fx-alignment: center;
+    -fx-padding: 10;
+}
+
+/* Ensure TableView occupies available space */
+.table-view {
+    -fx-table-cell-border-color: transparent;
+    -fx-background-color: white;
+    -fx-padding: 0;
+    -fx-alignment: center;
+}
+
+/* Center-align text in all table cells */
+.table-view .table-cell {
+    -fx-alignment: center;
+    -fx-padding: 0; /* Optional: Adjust padding */
+}
+
+.scroll-pane {
+    -fx-background-color: transparent; /* Match the background to your design */
+    -fx-padding: 0;
+}

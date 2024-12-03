@@ -42,3 +42,12 @@ db.username=postgres
 db.password=please_ignore_this
 db.name=postgres
 ```
+
+File `~/config/db_v2.conf`
+
+```ini
+db.host=127.0.0.1
+db.username=postgres
+db.password=please_ignore_this
+db.name=postgres
+```
