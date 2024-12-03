@@ -10,10 +10,13 @@ import java.util.logging.*;
 
 import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.image.Image;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
@@ -33,9 +36,11 @@ public class Application extends javafx.application.Application {
     private static final String ALLOWED_CHARACTERS_REGEX = "^[a-zA-Z0-9\\-_.,=@#$&:;/()]+$";
 
 
-
     @Override
     public void start(Stage stage) {
+
+        stage.getIcons().add(new Image("appicon.png"));
+
         VBox root = new VBox(10);
         root.setPadding(new Insets(10));
 
@@ -43,24 +48,52 @@ public class Application extends javafx.application.Application {
         searchField.setPromptText("Search across all columns using '+' for AND, '|' for OR...");
         searchField.setPrefWidth(500);
 
+
+        HBox searchBox = new HBox(10);
+        Label searchLabel = new Label("Search:");
+        searchField = new TextField();
+        searchField.setPromptText("Search across all columns using '+' for AND, '|' for OR...");
+
+// Center-align the text inside the searchField
+        searchField.setAlignment(Pos.CENTER);
+
+// Allow the searchField to expand and fill remaining space
+        HBox.setHgrow(searchField, Priority.ALWAYS);
+
         Button searchButton = new Button("Search");
         searchButton.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
 
-        HBox searchBox = new HBox(10);
-        searchBox.getChildren().addAll(new Label("Search:"), searchField, searchButton);
+// Add the components to the searchBox
+        searchBox.getChildren().addAll(searchLabel, searchField, searchButton);
         searchBox.setPadding(new Insets(0, 0, 10, 0));
 
+// Align the components properly
+        searchBox.setAlignment(Pos.CENTER_LEFT);
+
+
+        TableView<RandomData> tableView = new TableView<>();
+        setupTableColumns(tableView);
+
+        VBox.setVgrow(tableView, Priority.ALWAYS); // Allow table to expand vertically
+        tableView.prefHeightProperty().bind(root.heightProperty().subtract(120)); // Adjust height dynamically
+
         pagination = new Pagination();
-        pagination.setPageFactory(this::createPage);
         pagination.setMaxPageIndicatorCount(5);
 
-        root.getChildren().addAll(searchBox, pagination);
+        // Listener to update data when the page changes
+        pagination.currentPageIndexProperty().addListener((obs, oldIndex, newIndex) -> {
+            loadPageData(tableView, newIndex.intValue());
+        });
 
-        searchButton.setOnAction(e -> refreshTable(searchField.getText().trim()));
+        root.getChildren().addAll(searchBox, tableView, pagination);
+
+        searchButton.setOnAction(e -> {
+            refreshTable(tableView);
+        });
 
         Scene scene = new Scene(root, 800, 600);
         stage.setTitle("Advanced Search Viewer");
-        stage.setResizable(false);
+        stage.setResizable(true); // Allow resizing
         stage.setScene(scene);
 
         // Initialize DB connection
@@ -70,7 +103,7 @@ public class Application extends javafx.application.Application {
             Platform.exit();
         }
 
-        refreshTable(""); // Initial Load
+        refreshTable(tableView); // Initial Load
         stage.show();
     }
 
@@ -100,21 +133,20 @@ public class Application extends javafx.application.Application {
     }
 
 
-    private void refreshTable(String searchTerm) {
-        searchTerm = preprocessSearchTerm(searchTerm); // Preprocess the term
+    private void refreshTable(TableView<RandomData> tableView) {
+        String searchTerm = preprocessSearchTerm(searchField.getText().trim());
         if (searchTerm == null) {
             showAlert("Invalid Input", "The search term contains invalid characters.");
             return;
         }
 
-        String finalSearchTerm = searchTerm;
         CompletableFuture.runAsync(() -> {
             try {
-                String sqlCondition = DbConnection.buildSqlCondition(finalSearchTerm);
+                String sqlCondition = DbConnection.buildSqlCondition(searchTerm);
 
                 long count = DbConnection.executeCountSync(
                         "SELECT COUNT(*) FROM t_random WHERE " + sqlCondition,
-                        finalSearchTerm
+                        searchTerm
                 );
 
                 int pageCount = (int) Math.ceil(count / (double) ROWS_PER_PAGE);
@@ -122,10 +154,34 @@ public class Application extends javafx.application.Application {
                 Platform.runLater(() -> {
                     pagination.setPageCount(pageCount);
                     pagination.setCurrentPageIndex(0); // Reset to the first page
-                    pagination.setPageFactory(this::createPage); // Recreate the pages
+                    loadPageData(tableView, 0); // Load the first page of data
                 });
             } catch (SQLException e) {
                 Platform.runLater(() -> showAlert("Database Error", "Failed to load data: " + e.getMessage()));
+                e.printStackTrace();
+            }
+        }, executorService);
+    }
+
+    private void loadPageData(TableView<RandomData> tableView, int pageIndex) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                String searchTerm = preprocessSearchTerm(searchField.getText().trim());
+                String sqlCondition = DbConnection.buildSqlCondition(searchTerm);
+
+                var results = DbConnection.executeQuerySync(
+                        "SELECT * FROM t_random WHERE " + sqlCondition + " ORDER BY random_num LIMIT ? OFFSET ?",
+                        searchTerm,
+                        ROWS_PER_PAGE,
+                        pageIndex * ROWS_PER_PAGE
+                );
+
+                Platform.runLater(() -> {
+                    tableView.getItems().clear(); // Clear previous data
+                    tableView.getItems().addAll(results); // Add new data
+                });
+            } catch (SQLException e) {
+                Platform.runLater(() -> showAlert("Database Error", "Failed to load page: " + e.getMessage()));
                 e.printStackTrace();
             }
         }, executorService);
@@ -160,21 +216,41 @@ public class Application extends javafx.application.Application {
         return pageTableView;
     }
 
-
     private void setupTableColumns(TableView<RandomData> table) {
         TableColumn<RandomData, Integer> numCol = new TableColumn<>("Random Number");
         numCol.setCellValueFactory(cellData -> cellData.getValue().randomNumProperty().asObject());
         numCol.setPrefWidth(200);
+        centerColumn(numCol); // Center align
 
         TableColumn<RandomData, Double> floatCol = new TableColumn<>("Random Float");
         floatCol.setCellValueFactory(cellData -> cellData.getValue().randomFloatProperty().asObject());
         floatCol.setPrefWidth(200);
+        centerColumn(floatCol); // Center align
 
         TableColumn<RandomData, String> md5Col = new TableColumn<>("MD5");
         md5Col.setCellValueFactory(cellData -> cellData.getValue().md5Property());
         md5Col.setPrefWidth(380);
+        centerColumn(md5Col); // Center align
 
         table.getColumns().addAll(numCol, floatCol, md5Col);
+    }
+
+    private <T> void centerColumn(TableColumn<RandomData, T> column) {
+        column.setCellFactory(tc -> {
+            TableCell<RandomData, T> cell = new TableCell<>() {
+                @Override
+                protected void updateItem(T item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                    } else {
+                        setText(item.toString());
+                    }
+                }
+            };
+            cell.setAlignment(Pos.CENTER); // Center the content
+            return cell;
+        });
     }
 
     private boolean isValidSearchInput(String input) {
