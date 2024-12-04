@@ -292,11 +292,13 @@ public class Application extends javafx.application.Application {
         TableColumn<RandomData, Integer> numCol = new TableColumn<>("Random Number");
         numCol.setCellValueFactory(cellData -> cellData.getValue().randomNumProperty().asObject());
         numCol.setMinWidth(150); // Prevent column from collapsing
+        addCopyToClipboardFeature(numCol);
 
         // Create "Random Float" column
         TableColumn<RandomData, Double> floatCol = new TableColumn<>("Random Float");
         floatCol.setCellValueFactory(cellData -> cellData.getValue().randomFloatProperty().asObject());
         floatCol.setMinWidth(150);
+        addCopyToClipboardFeature(floatCol);
 
         // Add conditional columns based on the table name
         if (DbConnection.verifyRequiredColumns(tableName)) {
@@ -304,15 +306,18 @@ public class Application extends javafx.application.Application {
                 TableColumn<RandomData, String> md5Col = new TableColumn<>("MD5");
                 md5Col.setCellValueFactory(cellData -> cellData.getValue().md5Property());
                 md5Col.setMinWidth(400);
+                addCopyToClipboardFeature(md5Col);
                 tableView.getColumns().add(md5Col);
             } else if (tableName.startsWith("t_random_v3") || tableName.startsWith("t_random_v4")) {
                 TableColumn<RandomData, String> md5_1Col = new TableColumn<>("MD5_1");
                 md5_1Col.setCellValueFactory(cellData -> cellData.getValue().md5_1Property());
                 md5_1Col.setMinWidth(400);
+                addCopyToClipboardFeature(md5_1Col);
 
                 TableColumn<RandomData, String> md5_2Col = new TableColumn<>("MD5_2");
                 md5_2Col.setCellValueFactory(cellData -> cellData.getValue().md5_2Property());
                 md5_2Col.setMinWidth(400);
+                addCopyToClipboardFeature(md5_2Col);
 
                 tableView.getColumns().addAll(md5_1Col, md5_2Col);
             }
@@ -662,6 +667,46 @@ class DbConnection {
                 stmt.setInt(index++, offset);
             }
         }
+    }
+
+    private <T> void addCopyToClipboardFeature(TableColumn<RandomData, T> column) {
+        column.setCellFactory(tc -> {
+            TableCell<RandomData, T> cell = new TableCell<>() {
+                @Override
+                protected void updateItem(T item, boolean empty) {
+                    super.updateItem(item, empty);
+                    setText(empty || item == null ? null : item.toString());
+                }
+            };
+
+            // Set mouse click event on the cell
+            cell.setOnMouseClicked(event -> {
+                if (!cell.isEmpty()) {
+                    String text = cell.getText();
+                    if (text != null) {
+                        copyToClipboard(text);
+                        showAlert("Copied to Clipboard", "Copied: " + text);
+                    }
+                }
+            });
+
+            return cell;
+        });
+    }
+
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    private void copyToClipboard(String text) {
+        Clipboard clipboard = Clipboard.getSystemClipboard();
+        ClipboardContent content = new ClipboardContent();
+        content.putString(text);
+        clipboard.setContent(content);
     }
 
     public static String buildSqlCondition(String tableName, String searchTerm, boolean exactSearch) {
