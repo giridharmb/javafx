@@ -69,6 +69,10 @@ public class Application extends javafx.application.Application {
         Button searchButton = new Button("Search");
         searchButton.getStyleClass().add("search-button");
 
+        // Exact Search Checkbox
+        CheckBox exactSearchCheckBox = new CheckBox("Exact Search");
+        exactSearchCheckBox.setStyle("-fx-padding: 5;"); // Add some padding
+
         // TableView
         TableView<RandomData> tableView = new TableView<>();
         tableView.getStyleClass().add("table-view");
@@ -101,16 +105,16 @@ public class Application extends javafx.application.Application {
         pagination.setStyle("-fx-alignment: center;"); // Center pagination buttons horizontally
 
         // Search actions
-        searchButton.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName));
-        searchField.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName)); // Trigger search on Enter key press
+        searchButton.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName, exactSearchCheckBox.isSelected()));
+        searchField.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName, exactSearchCheckBox.isSelected())); // Trigger search on Enter key press
 
         // Pagination action
         pagination.currentPageIndexProperty().addListener((obs, oldIndex, newIndex) -> {
-            loadTableData(tableView, tableName, searchField.getText(), pagination, newIndex.intValue());
+            loadTableData(tableView, tableName, searchField.getText(), pagination, newIndex.intValue(), exactSearchCheckBox.isSelected());
         });
 
         // Layout
-        HBox searchBox = new HBox(10, searchField, searchButton);
+        HBox searchBox = new HBox(10, searchField, searchButton, exactSearchCheckBox);
         HBox.setHgrow(searchField, Priority.ALWAYS);
         searchBox.setAlignment(Pos.CENTER);
 
@@ -119,82 +123,62 @@ public class Application extends javafx.application.Application {
         tableTab.setContent(container);
 
         // Initial data load
-        loadTableData(tableView, tableName, "", pagination, 0);
+        loadTableData(tableView, tableName, "", pagination, 0, false);
 
         return tableTab;
     }
 
 
-    private void searchAndLoadData(TextField searchField, TableView<RandomData> tableView, Pagination pagination, String tableName) {
-        // Get the search term from the search field
-        String searchTerm = searchField.getText();
-
-        // Validate the search input
+    private void searchAndLoadData(TextField searchField, TableView<RandomData> tableView, Pagination pagination, String tableName, boolean exactSearch) {
+        String searchTerm = searchField.getText().trim();
         if (!isValidSearchInput(searchTerm)) {
             showAlert("Invalid Input", "The search term contains invalid characters. Please correct it and try again.");
             return;
         }
 
-        // Disable search field and button during the search
-        searchField.setDisable(true);
-        Button searchButton = (Button) ((HBox) searchField.getParent()).getChildren().get(1); // Get the search button
-        searchButton.setDisable(true);
-
-        // Run the search asynchronously
         CompletableFuture.runAsync(() -> {
             try {
-                // Build the SQL condition for the search term
-                String sqlCondition = DbConnection.buildSqlCondition(tableName, searchTerm);
+                String sqlCondition = DbConnection.buildSqlCondition(tableName, searchTerm, exactSearch);
 
-                // Query to count total records matching the search condition
+                // Execute count query
                 String countQuery = "SELECT COUNT(*) FROM " + tableName + " WHERE " + sqlCondition;
-                long totalRecords = DbConnection.executeCountSync(countQuery, tableName, searchTerm);
+                long totalRecords = DbConnection.executeCountSync(countQuery, tableName, searchTerm, exactSearch);
 
                 Platform.runLater(() -> {
                     if (totalRecords == 0) {
-                        // No results found, clear the table and disable pagination
                         tableView.getItems().clear();
                         pagination.setDisable(true);
                         showAlert("No Results", "No data found for the search term.");
                     } else {
-                        // Update pagination page count
                         pagination.setDisable(false);
-                        int totalPages = (int) Math.ceil(totalRecords / (double) ROWS_PER_PAGE);
-                        pagination.setPageCount(totalPages);
+                        pagination.setPageCount((int) Math.ceil(totalRecords / (double) ROWS_PER_PAGE));
                     }
                 });
 
-                // Query to fetch paginated data
+                // Execute data query
                 String dataQuery = "SELECT * FROM " + tableName + " WHERE " + sqlCondition + " LIMIT " + ROWS_PER_PAGE + " OFFSET 0";
-                List<RandomData> results = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, 0);
+                List<RandomData> results = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, 0, exactSearch);
 
                 Platform.runLater(() -> {
-                    // Populate the table with the results
                     tableView.getItems().clear();
                     tableView.getItems().addAll(results);
                 });
             } catch (Exception e) {
-                // Handle exceptions and show an error message
                 Platform.runLater(() -> showAlert("Error", "Failed to load data: " + e.getMessage()));
                 e.printStackTrace();
-            } finally {
-                // Re-enable the search field and button after the search completes
-                Platform.runLater(() -> {
-                    searchField.setDisable(false);
-                    searchButton.setDisable(false);
-                });
             }
         });
     }
 
-    private void loadTableData(TableView<RandomData> tableView, String tableName, String searchTerm, Pagination pagination, int pageIndex) {
+    private void loadTableData(TableView<RandomData> tableView, String tableName, String searchTerm, Pagination pagination, int pageIndex, boolean exactSearch) {
         CompletableFuture.runAsync(() -> {
             try {
-                String sqlCondition = DbConnection.buildSqlCondition(tableName, searchTerm);
+                String sqlCondition = DbConnection.buildSqlCondition(tableName, searchTerm, exactSearch);
                 String sortQuery = buildSortQuery(tableView);
 
+                // Execute count query
                 String countQuery = "SELECT COUNT(*) FROM " + tableName + " WHERE " + sqlCondition;
-                long totalRecords = DbConnection.executeCountSync(countQuery, tableName, searchTerm);
+                long totalRecords = DbConnection.executeCountSync(countQuery, tableName, searchTerm, exactSearch);
 
                 Platform.runLater(() -> {
                     pagination.setDisable(totalRecords == 0);
@@ -204,14 +188,13 @@ public class Application extends javafx.application.Application {
                         return;
                     }
 
-                    int totalPages = (int) Math.ceil(totalRecords / (double) ROWS_PER_PAGE);
-                    pagination.setPageCount(totalPages);
+                    pagination.setPageCount((int) Math.ceil(totalRecords / (double) ROWS_PER_PAGE));
                 });
 
-                String dataQuery = "SELECT * FROM " + tableName + " WHERE " + sqlCondition
-                        + " " + sortQuery
+                // Execute data query
+                String dataQuery = "SELECT * FROM " + tableName + " WHERE " + sqlCondition + " " + sortQuery
                         + " LIMIT " + ROWS_PER_PAGE + " OFFSET " + (pageIndex * ROWS_PER_PAGE);
-                var results = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, pageIndex * ROWS_PER_PAGE);
+                List<RandomData> results = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, pageIndex * ROWS_PER_PAGE, exactSearch);
 
                 Platform.runLater(() -> {
                     tableView.getItems().clear();
@@ -622,26 +605,26 @@ class DbConnection {
         return connection;
     }
 
-    public static long executeCountSync(String sql, String tableName, String searchTerm) throws SQLException {
+    public static long executeCountSync(String sql, String tableName, String searchTerm, boolean exactSearch) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            setParameters(stmt, tableName, searchTerm, -1, -1);
-            System.out.println("Executing Count Query: " + stmt.toString()); // Log the query
+            setParameters(stmt, tableName, searchTerm, -1, -1, exactSearch);
+            System.out.println("Executing Count Query: " + stmt);
             ResultSet rs = stmt.executeQuery();
             rs.next();
             return rs.getLong(1);
         }
     }
 
-    public static List<RandomData> executeQuerySync(String sql, String tableName, String searchTerm, int limit, int offset) throws SQLException {
+    public static List<RandomData> executeQuerySync(String sql, String tableName, String searchTerm, int limit, int offset, boolean exactSearch) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            setParameters(stmt, tableName, searchTerm, limit, offset);
-            System.out.println("Executing Query: " + stmt.toString()); // Log the query
+            setParameters(stmt, tableName, searchTerm, limit, offset, exactSearch);
+            System.out.println("Executing Query: " + stmt);
             ResultSet rs = stmt.executeQuery();
             return resultSetToList(rs);
         }
     }
 
-    private static void setParameters(PreparedStatement stmt, String tableName, String searchTerm, int limit, int offset) throws SQLException {
+    private static void setParameters(PreparedStatement stmt, String tableName, String searchTerm, int limit, int offset, boolean exactSearch) throws SQLException {
         int index = 1;
 
         if (!searchTerm.isEmpty()) {
@@ -662,16 +645,15 @@ class DbConnection {
             }
 
             for (String keyword : keywords) {
-                String escapedKeyword = keyword.replace("_", "\\_").replace("%", "\\%");
-                String likeTerm = "%" + escapedKeyword.trim() + "%";
+                String queryParam = exactSearch ? keyword : "%" + keyword.trim() + "%";
 
                 for (String column : columns) {
-                    stmt.setString(index++, likeTerm);
+                    stmt.setString(index++, queryParam);
                 }
             }
         }
 
-        // Set limit and offset only if placeholders exist
+        // Set limit and offset if placeholders exist
         if (stmt.getParameterMetaData().getParameterCount() >= index) {
             if (limit > 0) {
                 stmt.setInt(index++, limit);
@@ -682,7 +664,7 @@ class DbConnection {
         }
     }
 
-    public static String buildSqlCondition(String tableName, String searchTerm) {
+    public static String buildSqlCondition(String tableName, String searchTerm, boolean exactSearch) {
         if (searchTerm.isEmpty()) {
             return "1=1"; // Match all rows if no search term
         }
@@ -701,23 +683,24 @@ class DbConnection {
                 throw new IllegalArgumentException("Unknown table: " + tableName);
         }
 
-        String operator = searchTerm.contains("+") ? "AND" : "OR";
-        String[] keywords = extractKeywords(searchTerm);
+        String operator = "OR"; // Default to partial search with OR
+        String condition;
 
-        StringBuilder condition = new StringBuilder();
-        for (int i = 0; i < keywords.length; i++) {
-            String keywordCondition = Arrays.stream(columns)
+        if (exactSearch) {
+            // Exact match condition
+            condition = Arrays.stream(columns)
+                    .map(column -> "CAST(" + column + " AS TEXT) = ?")
+                    .reduce((a, b) -> a + " OR " + b)
+                    .orElse("");
+        } else {
+            // Partial match condition
+            condition = Arrays.stream(columns)
                     .map(column -> "CAST(" + column + " AS TEXT) ILIKE ?")
                     .reduce((a, b) -> a + " OR " + b)
                     .orElse("");
-
-            condition.append("(").append(keywordCondition).append(")");
-            if (i < keywords.length - 1) {
-                condition.append(" ").append(operator).append(" ");
-            }
         }
 
-        return condition.toString();
+        return "(" + condition + ")";
     }
 
     private static String[] extractKeywords(String searchTerm) {
