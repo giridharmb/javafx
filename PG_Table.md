@@ -1,4 +1,4 @@
-## Docker & PostgreSQL Setup
+## JavaFX + Docker & PostgreSQL Setup
 
 #### Run PG Docker
 
@@ -21,9 +21,23 @@ CREATE TABLE t_random(
 );
 ```
 
-### PG Creds File
+### PG Configuration Files
 
-File `~/config/db.conf`
+- Files Needed
+  - ~/config/db1.conf
+  - ~/config/db2.conf
+  - ~/config/databases.conf
+
+File `~/config/db1.conf`
+
+```ini
+db.host=127.0.0.1
+db.username=postgres
+db.password=please_ignore_this
+db.name=postgres
+```
+
+File `~/config/db2.conf`
 
 ```ini
 db.host=127.0.0.1
@@ -32,18 +46,25 @@ db.password=please_ignore_this
 db.name=postgres
 ```
 
-File `~/config/db_v2.conf`
+File `~/config/databases.conf`
 
 ```ini
-db.host=127.0.0.1
-db.username=postgres
-db.password=please_ignore_this
-db.name=postgres
+[DB1]
+tables=t_random_v1,t_random_v2
+show=true
+
+[DB2]
+tables=t_random_v3,t_random_v4
+show=false
 ```
+
+- Notes for `~/config/databases.conf`
+  - If you don't want to show `DB1` (& all tables under that) , change  `show=true` to `show=false`
+  - Under `DB1` , if you don't want to show `t_random_v2`, change `tables=t_random_v1,t_random_v2` to `tables=t_random_v1`
 
 ## Insert Some Rows Into PG Table (Which JavaFX Application Can Render)
 
-#### Create: t_random_v1 + t_random_v2
+#### Create: `t_random_v1` + `t_random_v2` under `DB1`
 
 ```sql
 CREATE TABLE t_random_v1 (
@@ -61,7 +82,7 @@ CREATE TABLE t_random_v2 (
 );
 ```
 
-#### Insert Data: t_random_v1 + t_random_v2
+#### Insert Data For : `t_random_v1` + `t_random_v2`
 
 ```sql
 INSERT INTO t_random_v1 (random_num, random_float, md5) 
@@ -81,7 +102,7 @@ INSERT INTO t_random_v2 (random_num, random_float, md5)
  from generate_series(1,100);
 ```
 
-#### Create: t_random_v3 + t_random_v4
+#### Create: `t_random_v3` + `t_random_v4` under `DB2`
 
 ```sql
 CREATE TABLE t_random_v3 (
@@ -101,7 +122,7 @@ CREATE TABLE t_random_v4 (
 );
 ```
 
-#### Insert Data: t_random_v3 + t_random_v4
+#### Insert Data For : `t_random_v3` + `t_random_v4`
 
 ```sql
 INSERT INTO t_random_v3 (random_num, random_float, md5_1, md5_2) 
