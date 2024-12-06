@@ -380,37 +380,6 @@ public class Application extends javafx.application.Application {
         return databaseTab;
     }
 
-//    @Override
-//    public void start(Stage stage) {
-//        stage.getIcons().add(new Image("appicon.png"));
-//
-//        // Root layout for the entire application
-//        VBox root = new VBox(10);
-//        root.setPadding(new Insets(10));
-//        VBox.setVgrow(root, Priority.ALWAYS); // Allow the root layout to grow
-//
-//        // Initialize and set up database tabs
-//        setupTabs(); // This initializes tabPane
-//        VBox.setVgrow(tabPane, Priority.ALWAYS); // Ensure the tab pane grows to fill space
-//        root.getChildren().add(tabPane); // Add tabPane to the root layout
-//
-//        // Set up the scene and stage
-//        Scene scene = new Scene(root, 1500, 900);
-//        // Load the CSS file
-//        scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
-//        stage.setTitle("Advanced Search Viewer");
-//        stage.setResizable(true);
-//        stage.setScene(scene);
-//
-//        // Initialize the database connection
-//        boolean success = DbConnection.initializeConnection(System.getProperty("user.home") + "/config/db.conf");
-//        if (!success) {
-//            showAlert("Initialization Failed", "Failed to initialize database connection. Exiting application.");
-//            Platform.exit();
-//        }
-//
-//        stage.show();
-//    }
 
     @Override
     public void start(Stage stage) {
@@ -452,30 +421,6 @@ public class Application extends javafx.application.Application {
         }
     }
 
-//    private void setupTabsFromConfig() {
-//        tabPane = new TabPane(); // Initialize TabPane
-//
-//        // Read database configurations
-//        Properties config = loadDatabaseConfig();
-//
-//        for (String dbName : config.stringPropertyNames()) {
-//            if (dbName.startsWith("DB")) {
-//                String dbProperties = config.getProperty(dbName);
-//                String[] dbConfig = dbProperties.split(";");
-//
-//                boolean showDatabase = Boolean.parseBoolean(getConfigValue(dbConfig, "show", "true"));
-//                if (!showDatabase) {
-//                    continue; // Skip if the database is hidden
-//                }
-//
-//                String tables = getConfigValue(dbConfig, "tables", "");
-//                String[] tableList = tables.split(",");
-//
-//                Tab databaseTab = createDatabaseTab(dbName, tableList);
-//                tabPane.getTabs().add(databaseTab);
-//            }
-//        }
-//    }
 
     private void setupTabsFromConfig() {
         tabPane = new TabPane(); // Initialize TabPane
@@ -495,24 +440,18 @@ public class Application extends javafx.application.Application {
         }
     }
 
-//    private Properties loadDatabaseConfig() {
-//        Properties config = new Properties();
-//        String configPath = System.getProperty("user.home") + "/config/databases.conf";
-//
-//        try (FileInputStream fis = new FileInputStream(configPath)) {
-//            config.load(fis);
-//        } catch (IOException e) {
-//            showAlert("Error", "Failed to load database configuration: " + e.getMessage());
-//        }
-//
-//        return config;
-//    }
 
     private Properties loadDatabaseConfig() {
         Properties config = new Properties();
         String configPath = System.getProperty("user.home") + "/config/databases.conf";
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(configPath))) {
+        File configFile = new File(configPath);
+        if (!configFile.exists()) {
+            showAlert("Configuration Missing", "The configuration file '" + configPath + "' was not found. Please create the configuration file.");
+            return config; // Return an empty Properties object
+        }
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
             String currentSection = null;
 
             // Temporary map to store parsed data
@@ -570,7 +509,17 @@ public class Application extends javafx.application.Application {
     private Tab createDatabaseTab(String dbName, String[] tables) {
         Tab databaseTab = new Tab(dbName);
 
-        if (!DbConnection.initializeConnection(System.getProperty("user.home") + "/config/" + dbName.toLowerCase() + ".conf")) {
+        String dbConfigPath = System.getProperty("user.home") + "/config/" + dbName.toLowerCase() + ".conf";
+        File dbConfigFile = new File(dbConfigPath);
+
+        if (!dbConfigFile.exists()) {
+            showAlert("Configuration Missing", "The configuration file for '" + dbName + "' was not found: " + dbConfigPath);
+            databaseTab.setContent(new Label("Configuration file missing for this database."));
+            return databaseTab;
+        }
+
+        if (!DbConnection.initializeConnection(dbConfigPath)) {
+            showAlert("Connection Error", "Failed to connect to the database '" + dbName + "'. Please check the configuration.");
             databaseTab.setContent(new Label("Failed to connect to database."));
             return databaseTab;
         }
@@ -699,17 +648,23 @@ class DbConnection {
     private static String currentConfigFile;
 
     public static boolean initializeConnection(String configFile) {
-        currentConfigFile = configFile;
-        try {
-            Properties config = loadConfig(configFile);
+        File config = new File(configFile);
+        if (!config.exists()) {
+            Platform.runLater(() -> showAlert("Configuration Missing", "Configuration file not found: " + configFile));
+            return false;
+        }
 
-            String host = config.getProperty("db.host");
-            String user = config.getProperty("db.username");
-            String password = config.getProperty("db.password");
-            String database = config.getProperty("db.name");
+        try {
+            Properties dbConfig = loadConfig(configFile);
+
+            String host = dbConfig.getProperty("db.host");
+            String user = dbConfig.getProperty("db.username");
+            String password = dbConfig.getProperty("db.password");
+            String database = dbConfig.getProperty("db.name");
 
             if (host == null || user == null || password == null || database == null) {
-                throw new IllegalArgumentException("Invalid configuration: Missing required database properties.");
+                Platform.runLater(() -> showAlert("Configuration Error", "Missing required database properties in: " + configFile));
+                return false;
             }
 
             connection = DriverManager.getConnection(
@@ -721,13 +676,12 @@ class DbConnection {
             LOGGER.info("Database connection initialized successfully with config: " + configFile);
             return true;
 
-        } catch (FileNotFoundException e) {
-            showErrorDialog("Configuration Missing", "Configuration file not found: " + configFile, e);
         } catch (SQLException e) {
-            showErrorDialog("Database Connection Error", "Failed to connect to the database: " + e.getMessage(), e);
-        } catch (IOException | IllegalArgumentException e) {
-            showErrorDialog("Configuration Error", e.getMessage(), e);
+            Platform.runLater(() -> showAlert("Database Connection Error", "Failed to connect to the database: " + e.getMessage()));
+        } catch (IOException e) {
+            Platform.runLater(() -> showAlert("Configuration Error", "Failed to load configuration file: " + configFile));
         }
+
         return false;
     }
 
@@ -876,7 +830,7 @@ class DbConnection {
         });
     }
 
-    private void showAlert(String title, String message) {
+    private static void showAlert(String title, String message) {
         Alert alert = new Alert(Alert.AlertType.INFORMATION);
         alert.setTitle(title);
         alert.setHeaderText(null);
