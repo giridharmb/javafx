@@ -11,6 +11,10 @@ docker run -d \
   postgres:16
 ```
 
+```
+psql -h 127.0.0.0 -U postgres postgres
+```
+
 #### Create PG Table
 
 ```sql
@@ -109,7 +113,7 @@ CREATE TABLE t_random_v3 (
    random_num INT NOT NULL,
    random_float DOUBLE PRECISION NOT NULL,
    md5_1 TEXT NOT NULL,
-   md5_2 TEXT NOT NULL,
+   md5_2 TEXT NOT NULL
 );
 ```
 
@@ -118,7 +122,7 @@ CREATE TABLE t_random_v4 (
    random_num INT NOT NULL,
    random_float DOUBLE PRECISION NOT NULL,
    md5_1 TEXT NOT NULL,
-   md5_2 TEXT NOT NULL,
+   md5_2 TEXT NOT NULL
 );
 ```
 
