@@ -57,8 +57,12 @@ public class Application extends javafx.application.Application {
         tabPane = new TabPane(); // Initialize the TabPane
 
         // Main database tabs
-        Tab db1Tab = createDatabaseTab("DB1", System.getProperty("user.home") + "/config/db1.conf", "t_random_v1", "t_random_v2");
-        Tab db2Tab = createDatabaseTab("DB2", System.getProperty("user.home") + "/config/db2.conf", "t_random_v3", "t_random_v4");
+//        Tab db1Tab = createDatabaseTab("DB1", System.getProperty("user.home") + "/config/db1.conf", "t_random_v1", "t_random_v2");
+//        Tab db2Tab = createDatabaseTab("DB2", System.getProperty("user.home") + "/config/db2.conf", "t_random_v3", "t_random_v4");
+
+
+        Tab db1Tab = createDatabaseTab("DB1", new String[]{"t_random_v1", "t_random_v2"});
+        Tab db2Tab = createDatabaseTab("DB2", new String[]{"t_random_v3", "t_random_v4"});
 
         tabPane.getTabs().addAll(db1Tab, db2Tab);
     }
@@ -363,22 +367,7 @@ public class Application extends javafx.application.Application {
         return column;
     }
 
-    private Tab createDatabaseTab(String dbName, String configFile, String... tables) {
-        Tab databaseTab = new Tab(dbName);
 
-        if (!DbConnection.initializeConnection(configFile)) {
-            databaseTab.setContent(new Label("Failed to connect to database."));
-            return databaseTab;
-        }
-
-        TabPane tableTabs = new TabPane();
-        for (String table : tables) {
-            tableTabs.getTabs().add(createTableTab(table));
-        }
-
-        databaseTab.setContent(tableTabs);
-        return databaseTab;
-    }
 
 
     @Override
@@ -423,78 +412,94 @@ public class Application extends javafx.application.Application {
 
 
     private void setupTabsFromConfig() {
-        tabPane = new TabPane(); // Initialize TabPane
+    tabPane = new TabPane(); // Initialize TabPane
 
-        // Read database configurations
-        Properties config = loadDatabaseConfig();
+    // Read database configurations
+    Properties config = loadDatabaseConfig();
 
-        for (String key : config.stringPropertyNames()) {
-            if (key.endsWith(".show") && Boolean.parseBoolean(config.getProperty(key))) {
-                String dbName = key.substring(0, key.indexOf("."));
-                String tables = config.getProperty(dbName + ".tables", "");
+    String mainDatabases = config.getProperty("main.databases", "");
+    if (mainDatabases.isEmpty()) {
+        showAlert("Error", "No databases specified in the '[main]' section of the configuration file.");
+        return;
+    }
 
-                String[] tableList = tables.split(",");
-                Tab databaseTab = createDatabaseTab(dbName, tableList);
-                tabPane.getTabs().add(databaseTab);
+    Set<String> allowedDatabases = new HashSet<>(Arrays.asList(mainDatabases.split(",")));
+
+    for (String key : config.stringPropertyNames()) {
+        if (key.endsWith(".show") && Boolean.parseBoolean(config.getProperty(key))) {
+            String dbName = key.substring(0, key.indexOf("."));
+            if (!allowedDatabases.contains(dbName)) {
+                continue; // Skip databases not in the main section
             }
+
+            String tables = config.getProperty(dbName + ".tables", "");
+            String[] tableList = tables.split(",");
+
+            Tab databaseTab = createDatabaseTab(dbName, tableList);
+            tabPane.getTabs().add(databaseTab);
         }
     }
+
+    if (tabPane.getTabs().isEmpty()) {
+        showAlert("Error", "No valid databases found based on the '[main]' section of the configuration file.");
+    }
+}
 
 
     private Properties loadDatabaseConfig() {
-        Properties config = new Properties();
-        String configPath = System.getProperty("user.home") + "/config/databases.conf";
+    Properties config = new Properties();
+    String configPath = System.getProperty("user.home") + "/config/databases.conf";
 
-        File configFile = new File(configPath);
-        if (!configFile.exists()) {
-            showAlert("Configuration Missing", "The configuration file '" + configPath + "' was not found. Please create the configuration file.");
-            return config; // Return an empty Properties object
-        }
-
-        try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
-            String currentSection = null;
-
-            // Temporary map to store parsed data
-            Map<String, Properties> sections = new LinkedHashMap<>();
-
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-
-                // Skip empty lines and comments
-                if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) {
-                    continue;
-                }
-
-                // Identify section headers
-                if (line.startsWith("[") && line.endsWith("]")) {
-                    currentSection = line.substring(1, line.length() - 1);
-                    sections.put(currentSection, new Properties());
-                } else if (currentSection != null) {
-                    // Parse key-value pairs
-                    int equalsIndex = line.indexOf('=');
-                    if (equalsIndex != -1) {
-                        String key = line.substring(0, equalsIndex).trim();
-                        String value = line.substring(equalsIndex + 1).trim();
-                        sections.get(currentSection).setProperty(key, value);
-                    }
-                }
-            }
-
-            // Combine all sections into a single flat Properties object
-            for (Map.Entry<String, Properties> entry : sections.entrySet()) {
-                String prefix = entry.getKey() + ".";
-                for (String key : entry.getValue().stringPropertyNames()) {
-                    config.setProperty(prefix + key, entry.getValue().getProperty(key));
-                }
-            }
-
-        } catch (IOException e) {
-            showAlert("Error", "Failed to load database configuration: " + e.getMessage());
-        }
-
-        return config;
+    File configFile = new File(configPath);
+    if (!configFile.exists()) {
+        showAlert("Configuration Missing", "The configuration file '" + configPath + "' was not found. Please create the configuration file.");
+        return config; // Return an empty Properties object
     }
+
+    try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
+        String currentSection = null;
+
+        // Temporary map to store parsed data
+        Map<String, Properties> sections = new LinkedHashMap<>();
+
+        String line;
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+
+            // Skip empty lines and comments
+            if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) {
+                continue;
+            }
+
+            // Identify section headers
+            if (line.startsWith("[") && line.endsWith("]")) {
+                currentSection = line.substring(1, line.length() - 1);
+                sections.put(currentSection, new Properties());
+            } else if (currentSection != null) {
+                // Parse key-value pairs
+                int equalsIndex = line.indexOf('=');
+                if (equalsIndex != -1) {
+                    String key = line.substring(0, equalsIndex).trim();
+                    String value = line.substring(equalsIndex + 1).trim();
+                    sections.get(currentSection).setProperty(key, value);
+                }
+            }
+        }
+
+        // Combine all sections into a single flat Properties object
+        for (Map.Entry<String, Properties> entry : sections.entrySet()) {
+            String prefix = entry.getKey() + ".";
+            for (String key : entry.getValue().stringPropertyNames()) {
+                config.setProperty(prefix + key, entry.getValue().getProperty(key));
+            }
+        }
+
+    } catch (IOException e) {
+        showAlert("Error", "Failed to load database configuration: " + e.getMessage());
+    }
+
+    return config;
+}
 
     private String getConfigValue(String[] configArray, String key, String defaultValue) {
         for (String pair : configArray) {
@@ -507,34 +512,34 @@ public class Application extends javafx.application.Application {
     }
 
     private Tab createDatabaseTab(String dbName, String[] tables) {
-        Tab databaseTab = new Tab(dbName);
+    Tab databaseTab = new Tab(dbName);
 
-        String dbConfigPath = System.getProperty("user.home") + "/config/" + dbName.toLowerCase() + ".conf";
-        File dbConfigFile = new File(dbConfigPath);
+    String dbConfigPath = System.getProperty("user.home") + "/config/" + dbName.toLowerCase() + ".conf";
+    File dbConfigFile = new File(dbConfigPath);
 
-        if (!dbConfigFile.exists()) {
-            showAlert("Configuration Missing", "The configuration file for '" + dbName + "' was not found: " + dbConfigPath);
-            databaseTab.setContent(new Label("Configuration file missing for this database."));
-            return databaseTab;
-        }
-
-        if (!DbConnection.initializeConnection(dbConfigPath)) {
-            showAlert("Connection Error", "Failed to connect to the database '" + dbName + "'. Please check the configuration.");
-            databaseTab.setContent(new Label("Failed to connect to database."));
-            return databaseTab;
-        }
-
-        TabPane tableTabs = new TabPane();
-        for (String table : tables) {
-            if (!table.isEmpty()) {
-                Tab tableTab = createTableTab(table);
-                tableTabs.getTabs().add(tableTab);
-            }
-        }
-
-        databaseTab.setContent(tableTabs);
+    if (!dbConfigFile.exists()) {
+        showAlert("Configuration Missing", "The configuration file for '" + dbName + "' was not found: " + dbConfigPath);
+        databaseTab.setContent(new Label("Configuration file missing for this database."));
         return databaseTab;
     }
+
+    if (!DbConnection.initializeConnection(dbConfigPath)) {
+        showAlert("Connection Error", "Failed to connect to the database '" + dbName + "'. Please check the configuration.");
+        databaseTab.setContent(new Label("Failed to connect to database."));
+        return databaseTab;
+    }
+
+    TabPane tableTabs = new TabPane();
+    for (String table : tables) {
+        if (!table.isEmpty()) {
+            Tab tableTab = createTableTab(table);
+            tableTabs.getTabs().add(tableTab);
+        }
+    }
+
+    databaseTab.setContent(tableTabs);
+    return databaseTab;
+}
 
     @Override
     public void stop() {
