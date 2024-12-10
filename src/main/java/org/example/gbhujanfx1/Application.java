@@ -3,16 +3,16 @@ package org.example.gbhujanfx1;
 import java.io.*;
 import java.util.Properties;
 
-import java.io.*;
 import java.sql.*;
 import java.util.*;
 import java.util.logging.*;
 
 import javafx.application.Platform;
+import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.value.ObservableValue;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
@@ -20,11 +20,9 @@ import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -76,55 +74,39 @@ public class Application extends javafx.application.Application {
 
         // Search box
         TextField searchField = new TextField();
-        searchField.getStyleClass().add("search-box");
         searchField.setPromptText("Search...");
-        searchField.setAlignment(Pos.CENTER); // Center-align text in the search box
+        searchField.setAlignment(Pos.CENTER);
 
         Button searchButton = new Button("Search");
-        searchButton.getStyleClass().add("search-button");
 
         // Exact Search Checkbox
         CheckBox exactSearchCheckBox = new CheckBox("Exact Search");
-        exactSearchCheckBox.setStyle("-fx-padding: 5;"); // Add some padding
 
-        // TableView
-        TableView<RandomData> tableView = new TableView<>();
-        tableView.getStyleClass().add("table-view");
+        // TableView for dynamic data
+        TableView<Map<String, Object>> tableView = new TableView<>();
+        setupDynamicTableColumns(tableView, tableName);
 
-        // Set up columns and make them dynamically resize
-        setupTableColumns(tableView, tableName);
+        tableView.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
 
-        // Use UNCONSTRAINED_RESIZE_POLICY to prevent auto-resizing issues
-        tableView.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
-
-        // Bind the TableView width to the container's width
-        tableView.prefWidthProperty().bind(container.widthProperty());
-
-        // Embed the TableView inside a ScrollPane
+        // ScrollPane for TableView
         ScrollPane scrollPane = new ScrollPane(tableView);
-        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED); // Enable horizontal scrollbar
-        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED); // Enable vertical scrollbar
-        scrollPane.setFitToWidth(true); // Ensure the content stretches to fit the width
-        scrollPane.setFitToHeight(true); // Allow vertical resizing
-        VBox.setVgrow(scrollPane, Priority.ALWAYS); // Ensure ScrollPane grows with the window
+        scrollPane.setFitToWidth(true);
 
-        // Prevent double scrollbars by setting ScrollPane's content width binding
-        tableView.prefWidthProperty().bind(scrollPane.widthProperty().subtract(20)); // Account for padding and scrollbar width
+
+        VBox.setVgrow(scrollPane, Priority.ALWAYS);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setFitToHeight(true);
 
         // Pagination
         Pagination pagination = new Pagination();
-        pagination.getStyleClass().add("pagination");
         pagination.setMaxPageIndicatorCount(5);
-        pagination.setMinHeight(40); // Ensure consistent height for pagination
-        pagination.setStyle("-fx-alignment: center;"); // Center pagination buttons horizontally
 
-        // Search actions
+        // Search and Pagination actions
         searchButton.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName, exactSearchCheckBox.isSelected()));
-        searchField.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName, exactSearchCheckBox.isSelected())); // Trigger search on Enter key press
+        searchField.setOnAction(e -> searchAndLoadData(searchField, tableView, pagination, tableName, exactSearchCheckBox.isSelected()));
 
-        // Pagination action
         pagination.currentPageIndexProperty().addListener((obs, oldIndex, newIndex) -> {
-            loadTableData(tableView, tableName, searchField.getText(), pagination, newIndex.intValue(), exactSearchCheckBox.isSelected());
+            loadTableData(tableView, tableName, searchField.getText(), pagination, (Integer) newIndex, exactSearchCheckBox.isSelected());
         });
 
         // Layout
@@ -133,7 +115,7 @@ public class Application extends javafx.application.Application {
         searchBox.setAlignment(Pos.CENTER);
 
         container.getChildren().addAll(searchBox, scrollPane, pagination);
-        VBox.setVgrow(container, Priority.ALWAYS); // Make container grow to fill space
+        VBox.setVgrow(container, Priority.ALWAYS);
         tableTab.setContent(container);
 
         // Initial data load
@@ -142,94 +124,135 @@ public class Application extends javafx.application.Application {
         return tableTab;
     }
 
+    private void setupDynamicTableColumns(TableView<Map<String, Object>> tableView, String tableName) {
+        tableView.getColumns().clear();
+        List<String> columnNames = fetchTableColumns(tableName);
 
-    private void searchAndLoadData(TextField searchField, TableView<RandomData> tableView, Pagination pagination, String tableName, boolean exactSearch) {
-        String searchTerm = searchField.getText().trim();
-        if (!isValidSearchInput(searchTerm)) {
-            showAlert("Invalid Input", "The search term contains invalid characters. Please correct it and try again.");
-            return;
+        System.out.println("Setting up table columns for: " + tableName);
+        for (String columnName : columnNames) {
+            System.out.println("Adding column: " + columnName);
+            TableColumn<Map<String, Object>, String> column = new TableColumn<>(columnName);
+            column.setCellValueFactory(cellData -> {
+                Map<String, Object> row = cellData.getValue();
+                Object value = row.get(columnName);
+                return new SimpleStringProperty(value != null ? value.toString() : "");
+            });
+            column.setMinWidth(150);
+            tableView.getColumns().add(column);
         }
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                String sqlCondition = DbConnection.buildSqlCondition(tableName, searchTerm, exactSearch);
-
-                // Execute count query
-                String countQuery = "SELECT COUNT(*) FROM " + tableName + " WHERE " + sqlCondition;
-                long totalRecords = DbConnection.executeCountSync(countQuery, tableName, searchTerm, exactSearch);
-
-                Platform.runLater(() -> {
-                    if (totalRecords == 0) {
-                        tableView.getItems().clear();
-                        pagination.setDisable(true);
-                        showAlert("No Results", "No data found for the search term.");
-                    } else {
-                        pagination.setDisable(false);
-                        pagination.setPageCount((int) Math.ceil(totalRecords / (double) ROWS_PER_PAGE));
-                    }
-                });
-
-                // Execute data query
-                String dataQuery = "SELECT * FROM " + tableName + " WHERE " + sqlCondition + " LIMIT " + ROWS_PER_PAGE + " OFFSET 0";
-                List<RandomData> results = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, 0, exactSearch);
-
-                Platform.runLater(() -> {
-                    tableView.getItems().clear();
-                    tableView.getItems().addAll(results);
-                });
-            } catch (Exception e) {
-                Platform.runLater(() -> showAlert("Error", "Failed to load data: " + e.getMessage()));
-                e.printStackTrace();
-            }
-        });
+        System.out.println("Columns set up complete for: " + tableName);
     }
 
-    private void loadTableData(TableView<RandomData> tableView, String tableName, String searchTerm, Pagination pagination, int pageIndex, boolean exactSearch) {
+    private List<String> fetchTableColumns(String tableName) {
+        List<String> columns = new ArrayList<>();
+        String query = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ?";
+
+        try (PreparedStatement stmt = DbConnection.getConnection().prepareStatement(query)) {
+            stmt.setString(1, tableName.toLowerCase());
+            System.out.println("Executing query: " + stmt);
+
+            ResultSet rs = stmt.executeQuery();
+            ResultSetMetaData metaData = rs.getMetaData();
+            System.out.println("Query returned " + metaData.getColumnCount() + " columns.");
+
+            while (rs.next()) {
+                String columnName = rs.getString("column_name");
+                System.out.println("Found column: " + columnName);
+                columns.add(columnName);
+            }
+
+            if (columns.isEmpty()) {
+                System.out.println("No columns found for table: " + tableName);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return columns;
+    }
+
+
+    private void searchAndLoadData(TextField searchField, TableView<Map<String, Object>> tableView, Pagination pagination, String tableName, boolean exactSearch) {
+        loadTableData(tableView, tableName, searchField.getText(), pagination, 0, exactSearch);
+    }
+
+    private List<Map<String, Object>> fetchTableData(String tableName) {
+        List<Map<String, Object>> data = new ArrayList<>();
+        String query = "SELECT * FROM public." + tableName;
+
+        try (PreparedStatement stmt = DbConnection.getConnection().prepareStatement(query)) {
+            System.out.println("Executing data query: " + query);
+            ResultSet rs = stmt.executeQuery();
+
+            ResultSetMetaData metaData = rs.getMetaData();
+            int columnCount = metaData.getColumnCount();
+            System.out.println("Data query returned " + columnCount + " columns.");
+
+            while (rs.next()) {
+                Map<String, Object> row = new HashMap<>();
+                for (int i = 1; i <= columnCount; i++) {
+                    String columnName = metaData.getColumnName(i);
+                    Object value = rs.getObject(i);
+                    System.out.println("Row [" + columnName + "]: " + value);
+                    row.put(columnName, value);
+                }
+                data.add(row);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return data;
+    }
+
+    private void loadTableData(TableView<Map<String, Object>> tableView, String tableName, String searchTerm, Pagination pagination, int pageIndex, boolean exactSearch) {
         CompletableFuture.runAsync(() -> {
             try {
+                System.out.println("Loading data for table: " + tableName);
                 String sqlCondition = DbConnection.buildSqlCondition(tableName, searchTerm, exactSearch);
-                String sortQuery = buildSortQuery(tableView);
 
-                // Execute count query
-                String countQuery = "SELECT COUNT(*) FROM " + tableName + " WHERE " + sqlCondition;
+                // Count query
+                String countQuery = "SELECT COUNT(*) FROM public." + tableName + " WHERE " + sqlCondition;
                 long totalRecords = DbConnection.executeCountSync(countQuery, tableName, searchTerm, exactSearch);
 
                 Platform.runLater(() -> {
-                    pagination.setDisable(totalRecords == 0);
-                    if (totalRecords == 0) {
-                        tableView.getItems().clear();
-                        showAlert("No Results", "No data found for the search term.");
-                        return;
-                    }
-
                     pagination.setPageCount((int) Math.ceil(totalRecords / (double) ROWS_PER_PAGE));
+                    pagination.setDisable(totalRecords == 0);
                 });
 
-                // Execute data query
-                String dataQuery = "SELECT * FROM " + tableName + " WHERE " + sqlCondition + " " + sortQuery
-                        + " LIMIT " + ROWS_PER_PAGE + " OFFSET " + (pageIndex * ROWS_PER_PAGE);
-                List<RandomData> results = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, pageIndex * ROWS_PER_PAGE, exactSearch);
+                if (totalRecords == 0) {
+                    System.out.println("No records found for table: " + tableName);
+                    Platform.runLater(tableView.getItems()::clear);
+                    return;
+                }
+
+                // Fetch data query
+                String dataQuery = "SELECT * FROM public." + tableName + " WHERE " + sqlCondition + " LIMIT " + ROWS_PER_PAGE + " OFFSET " + (pageIndex * ROWS_PER_PAGE);
+                System.out.println("Executing data query: " + dataQuery);
+                List<Map<String, Object>> data = DbConnection.executeQuerySync(dataQuery, tableName, searchTerm, ROWS_PER_PAGE, pageIndex * ROWS_PER_PAGE, exactSearch);
 
                 Platform.runLater(() -> {
+                    System.out.println("Data fetched: " + data.size() + " rows.");
                     tableView.getItems().clear();
-                    tableView.getItems().addAll(results);
+                    tableView.getItems().addAll(data);
                 });
             } catch (Exception e) {
-                Platform.runLater(() -> showAlert("Error", "Failed to load table data: " + e.getMessage()));
+                System.err.println("Error while loading data: " + e.getMessage());
                 e.printStackTrace();
+                Platform.runLater(() -> showAlert("Error", "Failed to load data for table: " + tableName + ". " + e.getMessage()));
             }
         }, executorService);
     }
 
-    private String buildSortQuery(TableView<RandomData> tableView) {
-        List<TableColumn<RandomData, ?>> sortOrder = tableView.getSortOrder();
+    private String buildSortQuery(TableView<Map<String, Object>> tableView) {
+        ObservableList<TableColumn<Map<String, Object>, ?>> sortOrder = tableView.getSortOrder();
 
         if (sortOrder.isEmpty()) {
             return ""; // No sorting applied
         }
 
         StringBuilder orderByClause = new StringBuilder("ORDER BY ");
-        for (TableColumn<RandomData, ?> column : sortOrder) {
+        for (TableColumn<Map<String, Object>, ?> column : sortOrder) {
             String columnName = getColumnName(column);
             boolean ascending = column.getSortType() == TableColumn.SortType.ASCENDING;
 
@@ -248,7 +271,7 @@ public class Application extends javafx.application.Application {
         return orderByClause.toString();
     }
 
-    private String getColumnName(TableColumn<RandomData, ?> column) {
+    private String getColumnName(TableColumn<Map<String, Object>, ?> column) {
         if (column.getText().equals("Random Number")) {
             return "random_num";
         } else if (column.getText().equals("Random Float")) {
@@ -368,8 +391,6 @@ public class Application extends javafx.application.Application {
     }
 
 
-
-
     @Override
     public void start(Stage stage) {
         try {
@@ -412,94 +433,94 @@ public class Application extends javafx.application.Application {
 
 
     private void setupTabsFromConfig() {
-    tabPane = new TabPane(); // Initialize TabPane
+        tabPane = new TabPane(); // Initialize TabPane
 
-    // Read database configurations
-    Properties config = loadDatabaseConfig();
+        // Read database configurations
+        Properties config = loadDatabaseConfig();
 
-    String mainDatabases = config.getProperty("main.databases", "");
-    if (mainDatabases.isEmpty()) {
-        showAlert("Error", "No databases specified in the '[main]' section of the configuration file.");
-        return;
-    }
+        String mainDatabases = config.getProperty("main.databases", "");
+        if (mainDatabases.isEmpty()) {
+            showAlert("Error", "No databases specified in the '[main]' section of the configuration file.");
+            return;
+        }
 
-    Set<String> allowedDatabases = new HashSet<>(Arrays.asList(mainDatabases.split(",")));
+        Set<String> allowedDatabases = new HashSet<>(Arrays.asList(mainDatabases.split(",")));
 
-    for (String key : config.stringPropertyNames()) {
-        if (key.endsWith(".show") && Boolean.parseBoolean(config.getProperty(key))) {
-            String dbName = key.substring(0, key.indexOf("."));
-            if (!allowedDatabases.contains(dbName)) {
-                continue; // Skip databases not in the main section
+        for (String key : config.stringPropertyNames()) {
+            if (key.endsWith(".show") && Boolean.parseBoolean(config.getProperty(key))) {
+                String dbName = key.substring(0, key.indexOf("."));
+                if (!allowedDatabases.contains(dbName)) {
+                    continue; // Skip databases not in the main section
+                }
+
+                String tables = config.getProperty(dbName + ".tables", "");
+                String[] tableList = tables.split(",");
+
+                Tab databaseTab = createDatabaseTab(dbName, tableList);
+                tabPane.getTabs().add(databaseTab);
             }
+        }
 
-            String tables = config.getProperty(dbName + ".tables", "");
-            String[] tableList = tables.split(",");
-
-            Tab databaseTab = createDatabaseTab(dbName, tableList);
-            tabPane.getTabs().add(databaseTab);
+        if (tabPane.getTabs().isEmpty()) {
+            showAlert("Error", "No valid databases found based on the '[main]' section of the configuration file.");
         }
     }
-
-    if (tabPane.getTabs().isEmpty()) {
-        showAlert("Error", "No valid databases found based on the '[main]' section of the configuration file.");
-    }
-}
 
 
     private Properties loadDatabaseConfig() {
-    Properties config = new Properties();
-    String configPath = System.getProperty("user.home") + "/config/databases.conf";
+        Properties config = new Properties();
+        String configPath = System.getProperty("user.home") + "/config/databases.conf";
 
-    File configFile = new File(configPath);
-    if (!configFile.exists()) {
-        showAlert("Configuration Missing", "The configuration file '" + configPath + "' was not found. Please create the configuration file.");
-        return config; // Return an empty Properties object
-    }
+        File configFile = new File(configPath);
+        if (!configFile.exists()) {
+            showAlert("Configuration Missing", "The configuration file '" + configPath + "' was not found. Please create the configuration file.");
+            return config; // Return an empty Properties object
+        }
 
-    try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
-        String currentSection = null;
+        try (BufferedReader reader = new BufferedReader(new FileReader(configFile))) {
+            String currentSection = null;
 
-        // Temporary map to store parsed data
-        Map<String, Properties> sections = new LinkedHashMap<>();
+            // Temporary map to store parsed data
+            Map<String, Properties> sections = new LinkedHashMap<>();
 
-        String line;
-        while ((line = reader.readLine()) != null) {
-            line = line.trim();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
 
-            // Skip empty lines and comments
-            if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) {
-                continue;
-            }
+                // Skip empty lines and comments
+                if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) {
+                    continue;
+                }
 
-            // Identify section headers
-            if (line.startsWith("[") && line.endsWith("]")) {
-                currentSection = line.substring(1, line.length() - 1);
-                sections.put(currentSection, new Properties());
-            } else if (currentSection != null) {
-                // Parse key-value pairs
-                int equalsIndex = line.indexOf('=');
-                if (equalsIndex != -1) {
-                    String key = line.substring(0, equalsIndex).trim();
-                    String value = line.substring(equalsIndex + 1).trim();
-                    sections.get(currentSection).setProperty(key, value);
+                // Identify section headers
+                if (line.startsWith("[") && line.endsWith("]")) {
+                    currentSection = line.substring(1, line.length() - 1);
+                    sections.put(currentSection, new Properties());
+                } else if (currentSection != null) {
+                    // Parse key-value pairs
+                    int equalsIndex = line.indexOf('=');
+                    if (equalsIndex != -1) {
+                        String key = line.substring(0, equalsIndex).trim();
+                        String value = line.substring(equalsIndex + 1).trim();
+                        sections.get(currentSection).setProperty(key, value);
+                    }
                 }
             }
-        }
 
-        // Combine all sections into a single flat Properties object
-        for (Map.Entry<String, Properties> entry : sections.entrySet()) {
-            String prefix = entry.getKey() + ".";
-            for (String key : entry.getValue().stringPropertyNames()) {
-                config.setProperty(prefix + key, entry.getValue().getProperty(key));
+            // Combine all sections into a single flat Properties object
+            for (Map.Entry<String, Properties> entry : sections.entrySet()) {
+                String prefix = entry.getKey() + ".";
+                for (String key : entry.getValue().stringPropertyNames()) {
+                    config.setProperty(prefix + key, entry.getValue().getProperty(key));
+                }
             }
+
+        } catch (IOException e) {
+            showAlert("Error", "Failed to load database configuration: " + e.getMessage());
         }
 
-    } catch (IOException e) {
-        showAlert("Error", "Failed to load database configuration: " + e.getMessage());
+        return config;
     }
-
-    return config;
-}
 
     private String getConfigValue(String[] configArray, String key, String defaultValue) {
         for (String pair : configArray) {
@@ -512,34 +533,34 @@ public class Application extends javafx.application.Application {
     }
 
     private Tab createDatabaseTab(String dbName, String[] tables) {
-    Tab databaseTab = new Tab(dbName);
+        Tab databaseTab = new Tab(dbName);
 
-    String dbConfigPath = System.getProperty("user.home") + "/config/" + dbName.toLowerCase() + ".conf";
-    File dbConfigFile = new File(dbConfigPath);
+        String dbConfigPath = System.getProperty("user.home") + "/config/" + dbName.toLowerCase() + ".conf";
+        File dbConfigFile = new File(dbConfigPath);
 
-    if (!dbConfigFile.exists()) {
-        showAlert("Configuration Missing", "The configuration file for '" + dbName + "' was not found: " + dbConfigPath);
-        databaseTab.setContent(new Label("Configuration file missing for this database."));
-        return databaseTab;
-    }
-
-    if (!DbConnection.initializeConnection(dbConfigPath)) {
-        showAlert("Connection Error", "Failed to connect to the database '" + dbName + "'. Please check the configuration.");
-        databaseTab.setContent(new Label("Failed to connect to database."));
-        return databaseTab;
-    }
-
-    TabPane tableTabs = new TabPane();
-    for (String table : tables) {
-        if (!table.isEmpty()) {
-            Tab tableTab = createTableTab(table);
-            tableTabs.getTabs().add(tableTab);
+        if (!dbConfigFile.exists()) {
+            showAlert("Configuration Missing", "The configuration file for '" + dbName + "' was not found: " + dbConfigPath);
+            databaseTab.setContent(new Label("Configuration file missing for this database."));
+            return databaseTab;
         }
-    }
 
-    databaseTab.setContent(tableTabs);
-    return databaseTab;
-}
+        if (!DbConnection.initializeConnection(dbConfigPath)) {
+            showAlert("Connection Error", "Failed to connect to the database '" + dbName + "'. Please check the configuration.");
+            databaseTab.setContent(new Label("Failed to connect to database."));
+            return databaseTab;
+        }
+
+        TabPane tableTabs = new TabPane();
+        for (String table : tables) {
+            if (!table.isEmpty()) {
+                Tab tableTab = createTableTab(table);
+                tableTabs.getTabs().add(tableTab);
+            }
+        }
+
+        databaseTab.setContent(tableTabs);
+        return databaseTab;
+    }
 
     @Override
     public void stop() {
@@ -753,7 +774,9 @@ class DbConnection {
 
     public static long executeCountSync(String sql, String tableName, String searchTerm, boolean exactSearch) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            setParameters(stmt, tableName, searchTerm, -1, -1, exactSearch);
+            if (sql.contains("?")) { // Only set parameters if placeholders exist
+                setParameters(stmt, tableName, searchTerm, -1, -1, exactSearch);
+            }
             System.out.println("Executing Count Query: " + stmt);
             ResultSet rs = stmt.executeQuery();
             rs.next();
@@ -761,11 +784,16 @@ class DbConnection {
         }
     }
 
-    public static List<RandomData> executeQuerySync(String sql, String tableName, String searchTerm, int limit, int offset, boolean exactSearch) throws SQLException {
+    public static List<Map<String, Object>> executeQuerySync(String sql, String tableName, String searchTerm, int limit, int offset, boolean exactSearch) throws SQLException {
         try (PreparedStatement stmt = connection.prepareStatement(sql)) {
-            setParameters(stmt, tableName, searchTerm, limit, offset, exactSearch);
-            System.out.println("Executing Query: " + stmt);
+            if (sql.contains("?")) { // Only set parameters if placeholders exist
+                setParameters(stmt, tableName, searchTerm, limit, offset, exactSearch);
+            }
+            System.out.println("Executing query: " + stmt);
             ResultSet rs = stmt.executeQuery();
+
+            ResultSetMetaData metaData = rs.getMetaData();
+            System.out.println("Query returned " + metaData.getColumnCount() + " columns.");
             return resultSetToList(rs);
         }
     }
@@ -774,41 +802,39 @@ class DbConnection {
         int index = 1;
 
         if (!searchTerm.isEmpty()) {
-            String[] keywords = extractKeywords(searchTerm);
+            String[] keywords = searchTerm.split("\\|"); // Adjust for your search logic
 
-            String[] columns;
-            switch (tableName) {
-                case "t_random_v1":
-                case "t_random_v2":
-                    columns = new String[]{"random_num", "random_float", "md5"};
-                    break;
-                case "t_random_v3":
-                case "t_random_v4":
-                    columns = new String[]{"random_num", "random_float", "md5_1", "md5_2"};
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unknown table: " + tableName);
-            }
-
+            List<String> columns = fetchTableColumns(tableName); // Dynamically fetch columns for the table
             for (String keyword : keywords) {
                 String queryParam = exactSearch ? keyword : "%" + keyword.trim() + "%";
-
                 for (String column : columns) {
                     stmt.setString(index++, queryParam);
                 }
             }
         }
 
-        // Set limit and offset if placeholders exist
-        if (stmt.getParameterMetaData().getParameterCount() >= index) {
-            if (limit > 0) {
-                stmt.setInt(index++, limit);
-            }
-            if (offset >= 0) {
-                stmt.setInt(index++, offset);
-            }
+        // Add limit and offset
+        if (limit > 0) {
+            stmt.setInt(index++, limit);
+        }
+        if (offset >= 0) {
+            stmt.setInt(index++, offset);
         }
     }
+
+    private static List<String> fetchTableColumns(String tableName) throws SQLException {
+        List<String> columns = new ArrayList<>();
+        String query = "SELECT column_name FROM information_schema.columns WHERE table_name = ?";
+        try (PreparedStatement stmt = connection.prepareStatement(query)) {
+            stmt.setString(1, tableName);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                columns.add(rs.getString("column_name"));
+            }
+        }
+        return columns;
+    }
+
 
     private <T> void addCopyToClipboardFeature(TableColumn<RandomData, T> column) {
         column.setCellFactory(tc -> {
@@ -893,38 +919,17 @@ class DbConnection {
         return searchTerm.contains("+") ? searchTerm.split("\\+") : searchTerm.split("\\|");
     }
 
-    private static List<RandomData> resultSetToList(ResultSet rs) throws SQLException {
-        List<RandomData> results = new ArrayList<>();
+    private static List<Map<String, Object>> resultSetToList(ResultSet rs) throws SQLException {
+        List<Map<String, Object>> results = new ArrayList<>();
         ResultSetMetaData metaData = rs.getMetaData();
-        if (metaData.getColumnCount() == 0) {
-            System.err.println("No columns found in result set.");
-            return results; // Return empty list if no columns are found
-        }
+        int columnCount = metaData.getColumnCount();
 
         while (rs.next()) {
-            int randomNum = rs.getInt("random_num");
-            double randomFloat = rs.getDouble("random_float");
-
-            String md5 = null;
-            String md5_1 = null;
-            String md5_2 = null;
-
-            try {
-                md5 = rs.getString("md5");
-            } catch (SQLException ignored) {
+            Map<String, Object> row = new HashMap<>();
+            for (int i = 1; i <= columnCount; i++) {
+                row.put(metaData.getColumnName(i), rs.getObject(i));
             }
-
-            try {
-                md5_1 = rs.getString("md5_1");
-            } catch (SQLException ignored) {
-            }
-
-            try {
-                md5_2 = rs.getString("md5_2");
-            } catch (SQLException ignored) {
-            }
-
-            results.add(new RandomData(randomNum, randomFloat, md5, md5_1, md5_2));
+            results.add(row);
         }
         return results;
     }
